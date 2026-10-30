@@ -11,6 +11,7 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
 import sys
 import time
@@ -98,9 +99,28 @@ def _config(command: Path, *, with_skills: bool = False) -> AgentConfig:
     )
 
 
+def _dashboard_config(command: Path, dashboard: dict[str, object]) -> AgentConfig:
+    config = _config(command)
+    assert config.harness is not None
+    config.harness.settings["interfaces"] = {"dashboard": dashboard}
+    return config
+
+
+def _dashboard_token(base_dir: Path) -> Path:
+    return (
+        base_dir
+        / "artifacts/.fabric/openclaw/runtimes/openclaw-runtime/interfaces/dashboard.token"
+    )
+
+
 @pytest.fixture(name="mock_openclaw")
 def mock_openclaw_fixture(repo_root: Path) -> Path:
     return repo_root / "tests/_utils/mock_openclaw.py"
+
+
+@pytest.fixture(name="dashboard_port")
+def dashboard_port_fixture() -> int:
+    return adapter._select_port({})
 
 
 def test_openclaw_port_availability_checks_one_port(
@@ -181,6 +201,134 @@ def test_openclaw_rejects_invalid_port_range(settings: dict[str, object]):
 
     assert caught.value.code == "openclaw_invalid_configuration"
     assert caught.value.metadata == {"field": "harness.settings.port_range"}
+
+
+@pytest.mark.parametrize(
+    ("settings", "expected"),
+    [
+        ({}, None),
+        ({"interfaces": {}}, None),
+        ({"interfaces": {"dashboard": {"port": 20_000, "enabled": False}}}, None),
+        (
+            {"interfaces": {"dashboard": {"port": 20_000}}},
+            {"port": 20_000, "public_origins": []},
+        ),
+        (
+            {
+                "interfaces": {
+                    "dashboard": {
+                        "enabled": True,
+                        "port": 65_425,
+                        "public_origins": ["https://claw.example.test:8443"],
+                    }
+                }
+            },
+            {"port": 65_425, "public_origins": ["https://claw.example.test:8443"]},
+        ),
+    ],
+)
+def test_openclaw_reads_dashboard_settings(
+    settings: dict[str, object], expected: dict[str, object] | None
+):
+    assert adapter._dashboard_settings(settings) == expected
+
+
+@pytest.mark.parametrize(
+    ("settings", "field"),
+    [
+        ({"interfaces": []}, "harness.settings.interfaces"),
+        (
+            {"interfaces": {"terminal": {}}},
+            "harness.settings.interfaces.terminal",
+        ),
+        (
+            {"interfaces": {"dashboard": []}},
+            "harness.settings.interfaces.dashboard",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": 20_000, "token": "secret"}}},
+            "harness.settings.interfaces.dashboard.token",
+        ),
+        (
+            {"interfaces": {"dashboard": {}}},
+            "harness.settings.interfaces.dashboard.port",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": 0}}},
+            "harness.settings.interfaces.dashboard.port",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": 65_426}}},
+            "harness.settings.interfaces.dashboard.port",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": True}}},
+            "harness.settings.interfaces.dashboard.port",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": 20_000, "enabled": "yes"}}},
+            "harness.settings.interfaces.dashboard.enabled",
+        ),
+        (
+            {
+                "interfaces": {
+                    "dashboard": {
+                        "port": 20_000,
+                        "public_origins": "https://claw.example.test",
+                    }
+                }
+            },
+            "harness.settings.interfaces.dashboard.public_origins",
+        ),
+        (
+            {
+                "interfaces": {
+                    "dashboard": {
+                        "port": 20_000,
+                        "public_origins": ["https://claw.example.test/ui"],
+                    }
+                }
+            },
+            "harness.settings.interfaces.dashboard.public_origins",
+        ),
+        (
+            {
+                "interfaces": {
+                    "dashboard": {
+                        "port": 20_000,
+                        "public_origins": ["ftp://claw.example.test"],
+                    }
+                }
+            },
+            "harness.settings.interfaces.dashboard.public_origins",
+        ),
+        (
+            {
+                "interfaces": {"dashboard": {"port": 20_000, "enabled": False}},
+                "port_range": {"start": 20_000, "end": 20_200},
+            },
+            "harness.settings.port_range",
+        ),
+    ],
+)
+def test_openclaw_rejects_invalid_dashboard_settings(
+    settings: dict[str, object], field: str
+):
+    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+        adapter._dashboard_settings(settings)
+
+    assert caught.value.code == "openclaw_invalid_configuration"
+    assert caught.value.metadata == {"field": field}
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Reads Linux procfs")
+def test_openclaw_finds_the_session_listening_on_a_port():
+    with socket.create_server(("127.0.0.1", 0)) as server:
+        port = server.getsockname()[1]
+        listening = adapter._port_listener_in_session(port, os.getsid(0))
+
+    assert listening
+    assert not adapter._port_listener_in_session(port, os.getsid(0))
 
 
 @pytest.mark.parametrize("raw", ["2026.9.34 extra", "2026.9.34\nuntrusted suffix"])
@@ -481,7 +629,153 @@ async def test_openclaw_runtime_generates_config_invokes_and_cleans_up(
     assert generated["mcp"]["servers"]["local"]["command"] == "python"
     assert generated["mcp"]["servers"]["remote"]["transport"] == ("streamable-http")
     assert "auth" not in generated["mcp"]["servers"]["remote"]
+    assert generated["gateway"]["controlUi"] == {"enabled": False}
+    assert not (tmp_path / "artifacts").exists()
     assert not state_root.exists()
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="Requires POSIX file permissions")
+async def test_openclaw_dashboard_serves_control_ui_with_a_token_file(
+    mock_openclaw: Path, tmp_path: Path, dashboard_port: int
+):
+    capture = tmp_path / "config.json"
+    os.environ["FAKE_OPENCLAW_CAPTURE"] = str(capture)
+    token_path = _dashboard_token(tmp_path)
+    runtime = adapter.OpenClawRuntime()
+
+    await runtime.start(
+        {
+            "config": _dashboard_config(
+                mock_openclaw,
+                {
+                    "port": dashboard_port,
+                    "public_origins": ["https://claw.example.test"],
+                },
+            ),
+            "runtime_context": _context(tmp_path).to_mapping(),
+            "base_dir": str(tmp_path),
+        }
+    )
+    try:
+        gateway_token = runtime._token
+        stored_token = token_path.read_text(encoding="utf-8")
+        token_mode = token_path.stat().st_mode & 0o777
+        directory_mode = token_path.parent.stat().st_mode & 0o777
+    finally:
+        await runtime.stop()
+
+    generated = json.loads(capture.read_text(encoding="utf-8"))
+    assert generated["gateway"]["port"] == dashboard_port
+    assert generated["gateway"]["controlUi"] == {
+        "enabled": True,
+        "allowedOrigins": [
+            f"http://127.0.0.1:{dashboard_port}",
+            f"http://localhost:{dashboard_port}",
+            "https://claw.example.test",
+        ],
+    }
+    assert stored_token == gateway_token
+    assert token_mode == 0o600
+    assert directory_mode == 0o700
+    assert not token_path.exists()
+
+
+@pytest.mark.parametrize("offset", [0, 2])
+async def test_openclaw_dashboard_port_in_use_fails_start(
+    mock_openclaw: Path, tmp_path: Path, dashboard_port: int, offset: int
+):
+    runtime = adapter.OpenClawRuntime()
+
+    with socket.create_server(("127.0.0.1", dashboard_port + offset)):
+        with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+            await runtime.start(
+                {
+                    "config": _dashboard_config(
+                        mock_openclaw, {"port": dashboard_port}
+                    ),
+                    "runtime_context": _context(tmp_path).to_mapping(),
+                    "base_dir": str(tmp_path),
+                }
+            )
+
+    assert caught.value.code == "openclaw_interface_port_unavailable"
+    assert caught.value.metadata == {
+        "field": "harness.settings.interfaces.dashboard.port",
+        "port": dashboard_port + offset,
+    }
+    assert runtime._process is None
+    assert not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="Reads Linux procfs")
+async def test_openclaw_dashboard_fails_when_its_gateway_does_not_own_the_port(
+    mock_openclaw: Path,
+    tmp_path: Path,
+    dashboard_port: int,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    os.environ["FAKE_OPENCLAW_CAPTURE"] = str(tmp_path / "config.json")
+    monkeypatch.setattr(
+        adapter, "_port_listener_in_session", MagicMock(return_value=False)
+    )
+    runtime = adapter.OpenClawRuntime()
+
+    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+        await runtime.start(
+            {
+                "config": _dashboard_config(mock_openclaw, {"port": dashboard_port}),
+                "runtime_context": _context(tmp_path).to_mapping(),
+                "base_dir": str(tmp_path),
+            }
+        )
+
+    assert caught.value.code == "openclaw_interface_port_unavailable"
+    assert runtime._process is None
+    assert not _dashboard_token(tmp_path).exists()
+
+
+@pytest.mark.parametrize("operation", ["prepare", "attach", "connect"])
+async def test_openclaw_services_reject_interfaces(
+    mock_openclaw: Path, tmp_path: Path, operation: str
+):
+    runtime = adapter.OpenClawRuntime()
+
+    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+        await runtime.start(
+            {
+                "config": _dashboard_config(mock_openclaw, {"port": 20_000}),
+                "runtime_context": _context(tmp_path).to_mapping(),
+                "base_dir": str(tmp_path),
+                "service": {"operation": operation},
+            }
+        )
+
+    assert caught.value.code == "openclaw_interfaces_require_managed_runtime"
+    assert runtime._process is None
+
+
+async def test_openclaw_rejects_startup_timeout_above_core_limit(
+    mock_openclaw: Path, tmp_path: Path
+):
+    config = _config(mock_openclaw)
+    assert config.harness is not None
+    config.harness.settings["startup_timeout_seconds"] = 76
+    runtime = adapter.OpenClawRuntime()
+
+    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+        await runtime.start(
+            {
+                "config": config,
+                "runtime_context": _context(tmp_path).to_mapping(),
+                "base_dir": str(tmp_path),
+            }
+        )
+
+    assert caught.value.code == "openclaw_invalid_configuration"
+    assert caught.value.metadata == {
+        "field": "harness.settings.startup_timeout_seconds"
+    }
+    assert runtime._process is None
 
 
 @pytest.mark.parametrize(
@@ -1828,6 +2122,51 @@ def test_openclaw_plan_rejects_mcp_authentication(
     assert capability in str(caught.value)
 
 
+@pytest.mark.parametrize(
+    ("settings", "field"),
+    [
+        ({"interfaces": {"terminal": {}}}, "harness.settings.interfaces"),
+        ({"interfaces": {"dashboard": {}}}, "harness.settings.interfaces.dashboard"),
+        (
+            {"interfaces": {"dashboard": {"port": 65_426}}},
+            "harness.settings.interfaces.dashboard.port",
+        ),
+        (
+            {"interfaces": {"dashboard": {"port": 20_000, "token": "secret"}}},
+            "harness.settings.interfaces.dashboard",
+        ),
+        (
+            {
+                "interfaces": {"dashboard": {"port": 20_000}},
+                "port_range": {"start": 20_000, "end": 20_200},
+            },
+            "harness.settings.interfaces.dashboard",
+        ),
+        ({"startup_timeout_seconds": 76}, "harness.settings.startup_timeout_seconds"),
+    ],
+)
+def test_openclaw_plan_rejects_invalid_interface_settings(
+    tmp_path: Path, settings: dict[str, object], field: str
+):
+    config = FabricConfig.from_mapping(
+        {
+            "metadata": {"name": "openclaw-interfaces"},
+            "harness": {
+                "adapter_id": "nvidia.fabric.openclaw",
+                "resolution": "preinstalled",
+                "settings": settings,
+            },
+            "models": {"default": {"provider": "test", "model": "fabric-echo"}},
+            "environment": {"provider": "local", "workspace": "."},
+        }
+    )
+
+    with pytest.raises(FabricConfigError) as caught:
+        Fabric().plan(config, base_dir=tmp_path)
+
+    assert field in str(caught.value)
+
+
 def test_openclaw_descriptor_and_module_entrypoint(repo_root: Path):
     descriptor = json.loads(
         (repo_root / "adapters/python/openclaw/openclaw.fabric-adapter.json").read_text(
@@ -1847,6 +2186,11 @@ def test_openclaw_descriptor_and_module_entrypoint(repo_root: Path):
     assert "agent_runtime" not in descriptor["settings_schema"]["properties"]
     assert "telegram" not in descriptor["settings_schema"]["properties"]
     assert "channel_config" in descriptor["settings_schema"]["properties"]
+    interfaces = descriptor["settings_schema"]["properties"]["interfaces"]
+    assert list(interfaces["properties"]) == ["dashboard"]
+    assert interfaces["additionalProperties"] is False
+    assert interfaces["properties"]["dashboard"]["additionalProperties"] is False
+    assert interfaces["properties"]["dashboard"]["required"] == ["port"]
     assert "tools.enabled" in descriptor["config"]["accepts"]
     assert "tools.blocked" in descriptor["config"]["accepts"]
     assert "mcp.auth.oauth2" not in descriptor["config"]["accepts"]

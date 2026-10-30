@@ -107,7 +107,11 @@ The following settings are specific to the OpenClaw adapter:
 | `agent_id` | `default` | OpenClaw agent for NeMo Fabric-originated invocations. |
 | `channel_config` | None | OpenClaw-native `channels` and `bindings` for a prepared service. Every binding must target `agent_id`. Managed runtimes reject this setting. |
 | `port_range` | Random available range | Inclusive consumer-allocated range with `start` and `end` fields; it must span at least 111 ports. |
-| `startup_timeout_seconds` | `30` | Gateway startup timeout. |
+| `interfaces.dashboard` | None | Serve the Control UI on a managed runtime; see [Serve the Control UI](#serve-the-control-ui). |
+| `interfaces.dashboard.port` | Required | Exact loopback Gateway base port, at most 65425. Can't be combined with `port_range`. |
+| `interfaces.dashboard.enabled` | `true` | Set to `false` to keep a configured dashboard off. |
+| `interfaces.dashboard.public_origins` | None | Browser origins accepted in addition to `http://127.0.0.1:<port>` and `http://localhost:<port>`. |
+| `startup_timeout_seconds` | `30` | Gateway startup timeout, at most 75 seconds. |
 | `shutdown_timeout_seconds` | `5` | Graceful shutdown timeout. |
 | `connect_timeout_seconds` | `10` | Local HTTP connection timeout. |
 | `read_timeout_seconds` | None | Local HTTP response timeout. When unset, the invocation timeout bounds the response. |
@@ -115,6 +119,44 @@ The following settings are specific to the OpenClaw adapter:
 OpenClaw's [derived-port mapping](https://docs.openclaw.ai/gateway/multiple-gateways#port-mapping-derived) uses `base_port + 2` for browser control and allocates browser CDP ports from `base_port + 11` through `base_port + 110`. Set `port_range` when the consumer reserves a port range before configuring NeMo Fabric; the adapter selects a base whose complete derived footprint fits inside that range. The adapter verifies only that `base_port` and `base_port + 2` are available before startup. OpenClaw allocates the CDP ports on demand instead of reserving the complete range, so the adapter cannot guarantee that those ports will still be available when OpenClaw needs them. Keep the configured range reserved for the lifetime of the runtime when using OpenClaw browser features.
 
 Relay telemetry and native OpenTelemetry are not supported.
+
+## Serve the Control UI
+
+OpenClaw's Control UI is its browser dashboard and chat. A managed runtime
+serves it when `harness.settings.interfaces.dashboard` is present:
+
+```json
+{"interfaces": {"dashboard": {"port": 18789, "public_origins": ["https://claw.example.com"]}}}
+```
+
+- The Gateway listens on `127.0.0.1` at the dashboard `port`, which serves the
+  Control UI. `start` fails with `openclaw_interface_port_unavailable` if
+  `port` or `port + 2` is in use, or, on Linux, if a process other than the
+  Gateway answers on `port`. OpenClaw also uses `port + 10` for its browser
+  relay and allocates browser CDP ports from `port + 11` through `port + 110`,
+  so reserve the whole range from `port` through `port + 110`.
+- After the Gateway starts, the adapter writes the sign-in token, generated at
+  each start, to
+  `<artifact root>/.fabric/openclaw/runtimes/<runtime-id>/interfaces/dashboard.token`
+  with mode `0600`. The artifact root is the runtime context's artifact
+  directory, or `<base_dir>/artifacts` when it is unset. `stop` removes the
+  token before it stops the Gateway; if the adapter host is killed, the file
+  can remain.
+- Open `http://127.0.0.1:<port>/#token=<token>` through a forward to that
+  port to sign in. The Control UI removes the token from the address bar.
+- The Gateway accepts `http://127.0.0.1:<port>`, `http://localhost:<port>`,
+  and `public_origins`. OpenClaw 2026.9.34 also accepts other loopback
+  origins, such as a forward to a different local port; the token is still
+  required.
+- Processes that run as the runtime's user, including the agent's own tools,
+  can read the token and reach the port, so the agent can sign in to its own
+  Control UI.
+- The adapter regenerates OpenClaw's configuration at each start and marks it
+  read-only, so changes made through the Control UI don't survive a restart.
+  NeMo Fabric doesn't promise that Control UI sessions share conversations
+  with NeMo Fabric invocations.
+- Prepared and attached services reject `interfaces` with
+  `openclaw_interfaces_require_managed_runtime`.
 
 ## Gateway Health
 
