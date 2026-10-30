@@ -105,10 +105,15 @@ shell, so it can't run the launcher. On a `noexec` mount, run it as
 The launcher opens `dcode`'s terminal UI in a **separate session** with the
 runtime's `DEEPAGENTS_HOME`, configuration and working directory. `dcode` can't
 attach to another process's agent, so the terminal doesn't see invocations
-live. Both share the runtime's session store: the runtime's ACP session is a
-`dcode` thread whose ID is in `interfaces/terminal.running`, and
-`<launcher path> -r <thread-id>` resumes it. Writing to that thread while an
-invocation runs can conflict.
+live, and it can't open the runtime's own thread. The runtime's ACP session is
+a `dcode` thread whose ID is in `interfaces/terminal.running`; the ACP session
+holds it while the runtime runs, and `dcode` refuses to resume a thread open
+elsewhere ("Thread can't be resumed"). The terminal UI can still list it with
+the runtime's other sessions:
+
+```bash
+openshell sandbox exec -n SANDBOX --tty -- <launcher path> threads list
+```
 
 - The launcher holds paths and switches, never secrets. The terminal UI reads
   the model key from the launching environment under the configured variable

@@ -41,6 +41,8 @@ With `interfaces.terminal`, the adapter writes a launcher to
 `<artifact root>/.fabric/deepagents-code/runtimes/<runtime-id>/interfaces/terminal`.
 It opens `dcode`'s terminal UI in a separate session that shares the runtime's
 configuration and session store, and refuses to start after the runtime stops.
+The terminal UI can list the runtime's thread with `threads list`, but can't
+open it: the runtime's ACP session holds that thread while the runtime runs.
 
 For settings, state locations, the launcher's limitations, and health checks,
 refer to the

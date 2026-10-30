@@ -200,7 +200,9 @@ export function launcherScript(options: { home: string; workspace: string; comma
     .map(([name, value]) => `export ${name}=${shellQuote(value)}`);
   return [
     "#!/bin/sh",
-    "# Opens Deep Agents Code's terminal UI with this NeMo Fabric runtime's configuration.",
+    "# Opens Deep Agents Code's terminal UI in a separate session with this NeMo Fabric",
+    "# runtime's configuration. The runtime holds its own thread while it runs, so",
+    "# `threads list` shows that thread but `-r` can't open it.",
     `if [ ! -e ${shellQuote(options.marker)} ]; then`,
     "  echo 'This NeMo Fabric runtime is not running.' >&2",
     "  exit 1",
