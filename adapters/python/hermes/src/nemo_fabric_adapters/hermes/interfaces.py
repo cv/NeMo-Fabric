@@ -302,10 +302,20 @@ async def _http_status(port: int, path: str) -> int | None:
 
 
 def _signal_group(process: asyncio.subprocess.Process, signum: int) -> None:
+    """Signal a child's process group, or only the child where that's denied.
+
+    OpenShell's sandbox denies signals to a process group with EPERM.
+    """
+
     try:
         os.killpg(process.pid, signum)
     except ProcessLookupError:
         pass
+    except PermissionError:
+        try:
+            os.kill(process.pid, signum)
+        except ProcessLookupError:
+            pass
 
 
 def _port_available(port: int) -> bool:

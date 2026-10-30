@@ -159,7 +159,9 @@ harness = HarnessConfig(
   `api_key_env` that Hermes resolves from the environment, so the API server and
   browser chat use the configured endpoint and key.
 - `stop` removes the token, sends SIGTERM to each child's process group, and
-  sends SIGKILL to what remains after 5 seconds. The generated configuration
+  sends SIGKILL to what remains after 5 seconds. Where a sandbox denies
+  signals to a process group, as OpenShell's does, it signals each child
+  process instead. The generated configuration
   sets `agent.cron_drain_timeout` to 3 seconds so the gateway exits within that
   window, which interrupts in-flight API runs and cron jobs. If the adapter
   host is killed, the token and the children can remain.

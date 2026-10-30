@@ -448,6 +448,29 @@ def test_hermes_plan_rejects_invalid_interface_settings(
     assert field in str(caught.value)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Requires POSIX process groups")
+async def test_hermes_stops_interface_children_where_group_signals_are_denied(
+    monkeypatch,
+):
+    def deny_group_signals(_process_group: int, _signal: int):
+        raise PermissionError(1, "Operation not permitted")
+
+    # OpenShell's sandbox denies signals to a process group.
+    monkeypatch.setattr(interfaces.os, "killpg", deny_group_signals)
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        "import time; time.sleep(60)",
+        start_new_session=True,
+    )
+    children = interfaces.InterfaceChildren()
+    children._children.append(interfaces._Child("api", 0, process))
+
+    await children.stop()
+
+    assert process.returncode is not None
+
+
 def test_hermes_descriptor_lists_its_interfaces(repo_root: Path):
     descriptor = json.loads(
         (repo_root / "adapters/python/hermes/hermes.fabric-adapter.json").read_text(
