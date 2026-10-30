@@ -86,6 +86,11 @@ The descriptor validates the following `harness.settings` fields:
 | `save_trajectories` | boolean | `false` | Enables Hermes-native JSONL conversation trajectory saving. This is separate from normalized NeMo Fabric telemetry. |
 | `max_tokens` | positive integer | `512` | Limits the number of tokens in each Hermes model response. |
 | `terminal_timeout` | positive number | `60` | Limits a Hermes terminal operation in seconds. |
+| `interfaces.api` | object | None | Serves Hermes's OpenAI-compatible API server; see [Serve the API Server and Dashboard](#serve-the-api-server-and-dashboard). |
+| `interfaces.dashboard` | object | None | Serves Hermes's dashboard and browser chat. |
+| `interfaces.<name>.port` | integer from 1 to 65535 | Required | Exact loopback port for that interface. |
+| `interfaces.<name>.enabled` | boolean | `true` | Set to `false` to keep a configured interface off. |
+| `startup_timeout_seconds` | positive number, at most 75 | `60` | Time for every enabled interface to pass its health check. |
 
 For example:
 
@@ -112,6 +117,63 @@ The adapter derives Hermes state from the NeMo Fabric artifact root and creates
 a child under `runtimes/<runtime_id>`, so invocations in one NeMo Fabric runtime
 share state without sharing config or the session database with another
 runtime.
+
+## Serve the API Server and Dashboard
+
+A runtime can serve Hermes's API server and dashboard as child processes
+alongside its embedded agent:
+
+```python
+from nemo_fabric import HarnessConfig
+
+harness = HarnessConfig(
+    adapter_id="nvidia.fabric.hermes",
+    settings={"interfaces": {"api": {"port": 8642}, "dashboard": {"port": 9119}}},
+)
+```
+
+- The adapter starts `python -m hermes_cli.main gateway run`, with only the API
+  server enabled, and `python -m hermes_cli.main dashboard --skip-build
+  --isolated`. Both use the adapter's interpreter and the runtime's Hermes home,
+  listen on `127.0.0.1` at their ports, and start at the same time. Each must
+  pass its health check, `GET /health` or `GET /api/status`, within
+  `startup_timeout_seconds`. `start` fails if a port is in use, the two ports
+  are equal, a child exits, or, on Linux, another process answers on a port. A
+  failed start stops the children it started and leaves no token.
+- After both pass health, the adapter writes the API server's bearer token,
+  generated at each start, to
+  `<artifact root>/.fabric/hermes/runtimes/<runtime-id>/interfaces/api.token`
+  with mode `0600`. Send it as `Authorization: Bearer <token>`. Only the
+  gateway child receives it, as `API_SERVER_KEY`. Processes that run as the
+  runtime's user, including the agent's own tools, can read it.
+- The dashboard has no sign-in. On loopback, Hermes embeds its session token in
+  the page, so anyone who can reach the port can use the dashboard and its
+  browser chat, which runs the agent. Hermes requires an auth provider for a
+  non-loopback dashboard, which this adapter doesn't configure.
+- The dashboard's gateway actions, such as restart, start Hermes processes
+  outside the runtime. They replace the gateway NeMo Fabric started with one
+  that has no API server, and they can keep running after `stop`.
+- Hermes's own processes read the model from `config.yaml`. With interfaces
+  enabled, the adapter writes an `openai` or `custom` model that has a
+  `base_url` as Hermes's `custom` provider, with its key as a reference to
+  `api_key_env` that Hermes resolves from the environment, so the API server and
+  browser chat use the configured endpoint and key.
+- `stop` removes the token, sends SIGTERM to each child's process group, and
+  sends SIGKILL to what remains after 5 seconds. The generated configuration
+  sets `agent.cron_drain_timeout` to 3 seconds so the gateway exits within that
+  window, which interrupts in-flight API runs and cron jobs. If the adapter
+  host is killed, the token and the children can remain.
+- After start, a child that exits doesn't fail the runtime check, and NeMo
+  Fabric doesn't restart it.
+- The gateway also runs Hermes's cron scheduler on the runtime's Hermes home.
+  Configuration changed through the dashboard isn't supported and is
+  regenerated at the next start. NeMo Fabric doesn't promise that the API
+  server's or dashboard's conversations share history with NeMo Fabric
+  invocations.
+- The API server needs `aiohttp`, from Hermes's `messaging` extra. The dashboard
+  needs a built frontend at `HERMES_WEB_DIST`, or at Hermes's own
+  `hermes_cli/web_dist`; the adapter never builds it. Interfaces need a POSIX
+  host.
 
 ## Execution Model
 
