@@ -38,7 +38,7 @@ from nemo_fabric_adapters.common import utils as common_utils
 from nemo_fabric_adapters.openclaw import _windows_job
 
 
-DEFAULT_STARTUP_TIMEOUT_SECONDS = 30.0
+DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
 # Fabric gives the adapter host 10 s to stop, including this wait.
 DEFAULT_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 10.0
@@ -1246,8 +1246,14 @@ class OpenClawRuntime:
             DEFAULT_STARTUP_TIMEOUT_SECONDS,
             maximum=MAX_STARTUP_TIMEOUT_SECONDS,
         )
+        # One deadline covers every startup step, so start ends within it.
+        startup_deadline = asyncio.get_running_loop().time() + startup_timeout
+
+        def startup_remaining() -> float:
+            return max(startup_deadline - asyncio.get_running_loop().time(), 0.0)
+
         version_output = await _command_output(
-            command, "--version", env=child_env, timeout=startup_timeout
+            command, "--version", env=child_env, timeout=startup_remaining()
         )
         version = _validate_openclaw_version(version_output)
         from nemo_fabric_adapters.common.provenance import record_version
@@ -1315,7 +1321,7 @@ class OpenClawRuntime:
                 "validate",
                 "--json",
                 env=child_env,
-                timeout=startup_timeout,
+                timeout=startup_remaining(),
             )
             if os.name == "nt":
                 try:
@@ -1328,7 +1334,7 @@ class OpenClawRuntime:
             gateway_command = _gateway_command(
                 command,
                 port=port,
-                prefix=await _parent_death_prefix(timeout=startup_timeout),
+                prefix=await _parent_death_prefix(timeout=startup_remaining()),
             )
             self._process = await asyncio.create_subprocess_exec(
                 *gateway_command,
@@ -1355,7 +1361,7 @@ class OpenClawRuntime:
                 ),
             ]
             self._install_signal_handlers()
-            await self._wait_started(port, token, startup_timeout)
+            await self._wait_started(port, token, startup_remaining())
             if dashboard is not None:
                 if sys.platform == "linux" and not _port_listener_in_session(
                     port, self._process.pid

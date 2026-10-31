@@ -111,7 +111,7 @@ The following settings are specific to the OpenClaw adapter:
 | `interfaces.dashboard.port` | Required | Exact loopback Gateway base port, at most 65425. Can't be combined with `port_range`. |
 | `interfaces.dashboard.enabled` | `true` | Set to `false` to keep a configured dashboard off. |
 | `interfaces.dashboard.public_origins` | None | Browser origins accepted in addition to `http://127.0.0.1:<port>` and `http://localhost:<port>`. |
-| `startup_timeout_seconds` | `30` | Gateway startup timeout, at most 75 seconds. |
+| `startup_timeout_seconds` | `60` | One deadline for all of start, from checking the `openclaw` command to the Gateway becoming ready; at most 75 seconds. |
 | `shutdown_timeout_seconds` | `5` | Graceful shutdown timeout. |
 | `connect_timeout_seconds` | `10` | Local HTTP connection timeout. |
 | `read_timeout_seconds` | None | Local HTTP response timeout. When unset, the invocation timeout bounds the response. |
