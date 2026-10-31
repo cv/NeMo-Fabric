@@ -657,6 +657,7 @@ def _openclaw_config(
         },
         "telemetry": {"enabled": False},
         "update": {"checkOnStart": False},
+        "models": {"catalogRefresh": {"enabled": False}},
         "discovery": {"mdns": {"mode": "off"}},
     }
     agent_id = _agent_id(config.harness.settings if config.harness else {})
@@ -702,7 +703,7 @@ def _openclaw_config(
             "id": model.api_key_env,
         }
     if provider:
-        result["models"] = {"providers": {model.provider: provider}}
+        result["models"]["providers"] = {model.provider: provider}
     channel_config = _channel_config(
         config.harness.settings if config.harness else {}, agent_id=agent_id
     )
