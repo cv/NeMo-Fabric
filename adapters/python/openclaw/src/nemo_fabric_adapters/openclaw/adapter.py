@@ -33,6 +33,7 @@ import httpx
 from nemo_fabric_adapter_contract import models as contract
 from nemo_fabric_adapters.common import instructions as common_instructions
 from nemo_fabric_adapters.common import lifecycle
+from nemo_fabric_adapters.common import local_interfaces
 from nemo_fabric_adapters.common import openai_chat
 from nemo_fabric_adapters.common import utils as common_utils
 from nemo_fabric_adapters.openclaw import _windows_job
@@ -448,37 +449,6 @@ def _port_available(port: int) -> bool:
         return False
     finally:
         sock.close()
-
-
-def _port_listener_in_session(port: int, session_id: int) -> bool:
-    """Return whether a process in one session listens on a TCP port.
-
-    Reads Linux procfs, so a health response can be tied to the Gateway rather
-    than to another process that already held the port.
-    """
-    sockets: set[str] = set()
-    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
-        try:
-            rows = Path(table).read_text(encoding="ascii").splitlines()[1:]
-        except OSError:
-            continue
-        for row in rows:
-            fields = row.split()
-            # State 0A is LISTEN; the local address ends in the hexadecimal port.
-            if fields[3] == "0A" and int(fields[1].rsplit(":", 1)[1], 16) == port:
-                sockets.add(f"socket:[{fields[9]}]")
-    for process in Path("/proc").iterdir():
-        if not process.name.isdigit():
-            continue
-        try:
-            if os.getsid(int(process.name)) != session_id:
-                continue
-            for descriptor in (process / "fd").iterdir():
-                if os.readlink(descriptor) in sockets:
-                    return True
-        except OSError:
-            continue
-    return False
 
 
 def _select_port(settings: dict[str, Any]) -> int:
@@ -938,32 +908,7 @@ def _write_service_connection(
         )
         + "\n"
     )
-    _write_private_file(path, payload)
-
-
-def _write_private_file(path: Path, payload: str) -> None:
-    """Atomically write an owner-only file in an owner-only directory."""
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=path.parent,
-        prefix=f".{path.name}.",
-    )
-    try:
-        if hasattr(os, "fchmod"):
-            os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            descriptor = -1
-            stream.write(payload)
-        os.replace(temporary_name, path)
-    except BaseException:
-        if descriptor >= 0:
-            os.close(descriptor)
-        try:
-            os.unlink(temporary_name)
-        except FileNotFoundError:
-            pass
-        raise
+    local_interfaces.write_private_file(path, payload)
 
 
 def _read_service_connection(path: Path) -> tuple[str, str, str]:
@@ -1364,8 +1309,11 @@ class OpenClawRuntime:
             self._install_signal_handlers()
             await self._wait_started(port, token, startup_remaining())
             if dashboard is not None:
-                if sys.platform == "linux" and not _port_listener_in_session(
-                    port, self._process.pid
+                if (
+                    sys.platform == "linux"
+                    and not local_interfaces.port_listener_in_session(
+                        port, self._process.pid
+                    )
                 ):
                     raise lifecycle.LifecycleError(
                         "openclaw_interface_port_unavailable",
@@ -1376,7 +1324,7 @@ class OpenClawRuntime:
                         },
                     )
                 token_path = _dashboard_token_path(context, base_dir)
-                _write_private_file(token_path, token)
+                local_interfaces.write_private_file(token_path, token)
                 self._dashboard_token_path = token_path
             self._client = httpx.AsyncClient(
                 headers={"authorization": f"Bearer {token}"},
