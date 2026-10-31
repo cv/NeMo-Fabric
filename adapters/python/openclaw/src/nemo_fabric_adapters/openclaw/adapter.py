@@ -1729,10 +1729,7 @@ class OpenClawRuntime:
         process = self._process
         if process is None or process.returncode is not None:
             return
-        try:
-            os.killpg(process.pid, signum)
-        except ProcessLookupError:
-            pass
+        local_interfaces.signal_process_group(process.pid, signum)
 
     async def _wait_started(self, port: int, token: str, timeout: float) -> None:
         deadline = asyncio.get_running_loop().time() + timeout
@@ -1889,10 +1886,7 @@ class OpenClawRuntime:
                 if os.name == "nt":
                     process.terminate()
                 else:
-                    try:
-                        os.killpg(process.pid, signal.SIGTERM)
-                    except ProcessLookupError:
-                        pass
+                    local_interfaces.signal_process_group(process.pid, signal.SIGTERM)
                 try:
                     await asyncio.wait_for(
                         process.wait(), timeout=self._shutdown_timeout
@@ -1903,10 +1897,9 @@ class OpenClawRuntime:
                     if os.name == "nt":
                         process.kill()
                     else:
-                        try:
-                            os.killpg(process.pid, signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
+                        local_interfaces.signal_process_group(
+                            process.pid, signal.SIGKILL
+                        )
                     try:
                         await process.wait()
                     except asyncio.CancelledError as error:
