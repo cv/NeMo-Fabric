@@ -734,6 +734,31 @@ async def test_openclaw_dashboard_fails_when_its_gateway_does_not_own_the_port(
     assert not _dashboard_token(tmp_path).exists()
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Requires POSIX process groups")
+async def test_openclaw_stop_ends_the_gateway_where_group_signals_are_denied(
+    mock_openclaw: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    os.environ["FAKE_OPENCLAW_CAPTURE"] = str(tmp_path / "config.json")
+    runtime = adapter.OpenClawRuntime()
+    await runtime.start(
+        {
+            "config": _config(mock_openclaw),
+            "runtime_context": _context(tmp_path).to_mapping(),
+            "base_dir": str(tmp_path),
+        }
+    )
+    gateway = runtime._process
+
+    # OpenShell's sandbox denies signals to a process group with EPERM.
+    def deny_group_signals(_pgid: int, _signum: int) -> None:
+        raise PermissionError(1, "Operation not permitted")
+
+    monkeypatch.setattr(os, "killpg", deny_group_signals)
+    await runtime.stop()
+
+    assert gateway.returncode is not None
+
+
 @pytest.mark.parametrize("operation", ["prepare", "attach", "connect"])
 async def test_openclaw_services_reject_interfaces(
     mock_openclaw: Path, tmp_path: Path, operation: str
