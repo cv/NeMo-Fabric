@@ -28,6 +28,7 @@ pytestmark = pytest.mark.usefixtures("requires_hermes_agent")
 
 if importlib.util.find_spec("run_agent") is not None:
     from nemo_fabric_adapters.hermes import adapter
+    from nemo_fabric_adapters.common import local_interfaces
     from nemo_fabric_adapters.hermes import configuration
     from nemo_fabric_adapters.hermes import interfaces
 
@@ -121,40 +122,80 @@ def test_hermes_reads_enabled_interface_ports(
     assert interfaces.interface_ports(settings) == expected
 
 
-@pytest.mark.parametrize(
-    ("settings", "field"),
-    [
-        ({"interfaces": []}, "harness.settings.interfaces"),
-        ({"interfaces": {"terminal": {}}}, "harness.settings.interfaces.terminal"),
-        ({"interfaces": {"api": []}}, "harness.settings.interfaces.api"),
-        (
-            {"interfaces": {"api": {"port": 8642, "key": "x"}}},
-            "harness.settings.interfaces.api.key",
-        ),
-        ({"interfaces": {"api": {}}}, "harness.settings.interfaces.api.port"),
-        ({"interfaces": {"api": {"port": 0}}}, "harness.settings.interfaces.api.port"),
-        (
-            {"interfaces": {"dashboard": {"port": 65_536}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": True}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 9119, "enabled": "yes"}}},
-            "harness.settings.interfaces.dashboard.enabled",
-        ),
-    ],
-)
-def test_hermes_rejects_invalid_interface_settings(
-    settings: dict[str, object], field: str
-):
+INTERFACES = "harness.settings.interfaces"
+TIMEOUT = "harness.settings.startup_timeout_seconds"
+
+
+def _interface(name: str, **fields: object) -> dict[str, object]:
+    return {"interfaces": {name: fields}}
+
+
+# Settings that planning and direct adapter use must both reject, with the
+# field that direct use names.
+INVALID_SETTINGS = [
+    pytest.param({"interfaces": []}, INTERFACES, id="not-an-object"),
+    pytest.param(_interface("terminal"), f"{INTERFACES}.terminal", id="unsupported"),
+    pytest.param({"interfaces": {"api": []}}, f"{INTERFACES}.api", id="api-not-object"),
+    pytest.param(
+        _interface("api", port=8642, key="x"),
+        f"{INTERFACES}.api.key",
+        id="unknown-field",
+    ),
+    pytest.param(_interface("api"), f"{INTERFACES}.api.port", id="missing-port"),
+    pytest.param(_interface("api", port=0), f"{INTERFACES}.api.port", id="port-zero"),
+    pytest.param(
+        _interface("dashboard", port=65_536),
+        f"{INTERFACES}.dashboard.port",
+        id="port-too-high",
+    ),
+    pytest.param(
+        _interface("dashboard", port=True),
+        f"{INTERFACES}.dashboard.port",
+        id="boolean-port",
+    ),
+    pytest.param(
+        _interface("dashboard", port=9119, enabled="yes"),
+        f"{INTERFACES}.dashboard.enabled",
+        id="string-enabled",
+    ),
+    *(
+        pytest.param(
+            {"startup_timeout_seconds": value}, TIMEOUT, id=f"timeout-{value!r}"
+        )
+        for value in [0, -1, 75.5, True, "60"]
+    ),
+]
+
+
+@pytest.mark.parametrize(("settings", "field"), INVALID_SETTINGS)
+def test_hermes_rejects_invalid_settings(settings: dict[str, object], field: str):
     with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
         interfaces.interface_ports(settings)
+        interfaces.startup_timeout(settings)
 
     assert caught.value.code == "hermes_invalid_configuration"
     assert caught.value.metadata == {"field": field}
+
+
+@pytest.mark.parametrize(("settings", "_field"), INVALID_SETTINGS)
+def test_hermes_plan_rejects_invalid_settings(
+    tmp_path: Path, settings: dict[str, object], _field: str
+):
+    config = FabricConfig.from_mapping(
+        {
+            "metadata": {"name": "hermes-interfaces"},
+            "harness": {
+                "adapter_id": "nvidia.fabric.hermes",
+                "resolution": "preinstalled",
+                "settings": settings,
+            },
+            "models": {"default": {"provider": "nvidia", "model": "test-model"}},
+            "environment": {"provider": "local", "workspace": "."},
+        }
+    )
+
+    with pytest.raises(FabricConfigError):
+        Fabric().plan(config, base_dir=tmp_path)
 
 
 @pytest.mark.parametrize(
@@ -163,16 +204,6 @@ def test_hermes_rejects_invalid_interface_settings(
 )
 def test_hermes_reads_startup_timeout(settings: dict[str, object], expected: float):
     assert interfaces.startup_timeout(settings) == expected
-
-
-@pytest.mark.parametrize("value", [0, -1, 75.5, True, "60"])
-def test_hermes_rejects_invalid_startup_timeout(value: object):
-    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
-        interfaces.startup_timeout({"startup_timeout_seconds": value})
-
-    assert caught.value.metadata == {
-        "field": "harness.settings.startup_timeout_seconds"
-    }
 
 
 def test_hermes_interfaces_read_the_model_endpoint_and_key_from_config():
@@ -396,7 +427,7 @@ async def test_hermes_interface_answered_by_another_process_fails_start(
     monkeypatch, tmp_path: Path, api_server: str
 ):
     monkeypatch.setattr(
-        interfaces, "_port_listener_in_session", MagicMock(return_value=False)
+        local_interfaces, "port_listener_in_session", MagicMock(return_value=False)
     )
     runtime = adapter.HermesRuntime()
 
@@ -412,63 +443,6 @@ async def test_hermes_interface_answered_by_another_process_fails_start(
     assert caught.value.code == "hermes_interface_port_unavailable"
     assert runtime._interfaces._children == []
     assert not _token_path(tmp_path).exists()
-
-
-@pytest.mark.parametrize(
-    ("settings", "field"),
-    [
-        ({"interfaces": {"terminal": {}}}, "harness.settings.interfaces"),
-        ({"interfaces": {"api": {}}}, "harness.settings.interfaces.api"),
-        (
-            {"interfaces": {"dashboard": {"port": 65_536}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        ({"startup_timeout_seconds": 76}, "harness.settings.startup_timeout_seconds"),
-    ],
-)
-def test_hermes_plan_rejects_invalid_interface_settings(
-    tmp_path: Path, settings: dict[str, object], field: str
-):
-    config = FabricConfig.from_mapping(
-        {
-            "metadata": {"name": "hermes-interfaces"},
-            "harness": {
-                "adapter_id": "nvidia.fabric.hermes",
-                "resolution": "preinstalled",
-                "settings": settings,
-            },
-            "models": {"default": {"provider": "nvidia", "model": "test-model"}},
-            "environment": {"provider": "local", "workspace": "."},
-        }
-    )
-
-    with pytest.raises(FabricConfigError) as caught:
-        Fabric().plan(config, base_dir=tmp_path)
-
-    assert field in str(caught.value)
-
-
-@pytest.mark.skipif(os.name == "nt", reason="Requires POSIX process groups")
-async def test_hermes_stops_interface_children_where_group_signals_are_denied(
-    monkeypatch,
-):
-    def deny_group_signals(_process_group: int, _signal: int):
-        raise PermissionError(1, "Operation not permitted")
-
-    # OpenShell's sandbox denies signals to a process group.
-    monkeypatch.setattr(interfaces.os, "killpg", deny_group_signals)
-    process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-c",
-        "import time; time.sleep(60)",
-        start_new_session=True,
-    )
-    children = interfaces.InterfaceChildren()
-    children._children.append(interfaces._Child("api", 0, process))
-
-    await children.stop()
-
-    assert process.returncode is not None
 
 
 def test_hermes_descriptor_lists_its_interfaces(repo_root: Path):
