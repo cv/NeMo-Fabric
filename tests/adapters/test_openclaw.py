@@ -29,6 +29,7 @@ from nemo_fabric.errors import FabricRuntimeError
 from nemo_fabric_adapter_contract.models import AgentConfig
 from nemo_fabric_adapter_contract.models import AgentRunRequest
 from nemo_fabric_adapter_contract.models import RuntimeContext
+from nemo_fabric_adapters.common import local_interfaces
 from nemo_fabric_adapters.openclaw import adapter
 from nemo_fabric_adapters.openclaw import _windows_job
 
@@ -319,16 +320,6 @@ def test_openclaw_rejects_invalid_dashboard_settings(
 
     assert caught.value.code == "openclaw_invalid_configuration"
     assert caught.value.metadata == {"field": field}
-
-
-@pytest.mark.skipif(sys.platform != "linux", reason="Reads Linux procfs")
-def test_openclaw_finds_the_session_listening_on_a_port():
-    with socket.create_server(("127.0.0.1", 0)) as server:
-        port = server.getsockname()[1]
-        listening = adapter._port_listener_in_session(port, os.getsid(0))
-
-    assert listening
-    assert not adapter._port_listener_in_session(port, os.getsid(0))
 
 
 @pytest.mark.parametrize("raw", ["2026.9.34 extra", "2026.9.34\nuntrusted suffix"])
@@ -718,7 +709,7 @@ async def test_openclaw_dashboard_fails_when_its_gateway_does_not_own_the_port(
 ):
     os.environ["FAKE_OPENCLAW_CAPTURE"] = str(tmp_path / "config.json")
     monkeypatch.setattr(
-        adapter, "_port_listener_in_session", MagicMock(return_value=False)
+        local_interfaces, "port_listener_in_session", MagicMock(return_value=False)
     )
     runtime = adapter.OpenClawRuntime()
 
