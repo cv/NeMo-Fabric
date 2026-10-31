@@ -10,14 +10,15 @@ import math
 import os
 import secrets
 import signal
-import socket
 import sys
-import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from nemo_fabric_adapters.common import lifecycle
+from nemo_fabric_adapters.common import local_interfaces
 
 HEALTH_PATHS = {"api": "/health", "dashboard": "/api/status"}
 DEFAULT_STARTUP_TIMEOUT_SECONDS = 60.0
@@ -140,7 +141,7 @@ class InterfaceChildren:
                 metadata={"field": "harness.settings.interfaces.dashboard.port"},
             )
         for name, port in ports.items():
-            if not _port_available(port):
+            if not local_interfaces.port_available(port):
                 raise _port_unavailable(
                     name, port, f"Hermes {name} port {port} is already in use"
                 )
@@ -151,32 +152,9 @@ class InterfaceChildren:
         deadline = asyncio.get_running_loop().time() + timeout
         try:
             for name, port in ports.items():
-                child_environment = {
-                    key: value
-                    for key, value in environment.items()
-                    if not key.startswith("API_SERVER_")
-                }
-                if name == "api":
-                    arguments = ["gateway", "run"]
-                    child_environment.update(
-                        API_SERVER_KEY=token,
-                        API_SERVER_HOST="127.0.0.1",
-                        API_SERVER_PORT=str(port),
-                    )
-                else:
-                    # --isolated keeps one dashboard per runtime instead of
-                    # attaching to another runtime's dashboard on this host.
-                    arguments = [
-                        "dashboard",
-                        "--host",
-                        "127.0.0.1",
-                        "--port",
-                        str(port),
-                        "--no-open",
-                        "--skip-build",
-                        "--isolated",
-                    ]
-                    child_environment["HERMES_WEB_DIST"] = str(web_dist)
+                arguments, child_environment = _child_command(
+                    name, port, token=token, web_dist=web_dist, environment=environment
+                )
                 with open(log_dir / f"fabric-interface-{name}.log", "ab") as log:
                     process = await asyncio.create_subprocess_exec(
                         sys.executable,
@@ -201,14 +179,16 @@ class InterfaceChildren:
                     wait.cancel()
             if sys.platform == "linux":
                 for child in self._children:
-                    if not _port_listener_in_session(child.port, child.process.pid):
+                    if not local_interfaces.port_listener_in_session(
+                        child.port, child.process.pid
+                    ):
                         raise _port_unavailable(
                             child.name,
                             child.port,
                             f"Hermes {child.name} port {child.port} answered from another process",
                         )
             if "api" in ports:
-                _write_private_file(token_path, token)
+                local_interfaces.write_private_file(token_path, token)
                 self._token_path = token_path
         except BaseException:
             await self.stop()
@@ -223,12 +203,12 @@ class InterfaceChildren:
         children, self._children = self._children, []
         running = [child for child in children if child.process.returncode is None]
         for child in running:
-            _signal_group(child.process, signal.SIGTERM)
+            local_interfaces.signal_process_group(child.process.pid, signal.SIGTERM)
         if running:
             waits = [asyncio.ensure_future(child.process.wait()) for child in running]
             _, pending = await asyncio.wait(waits, timeout=STOP_GRACE_SECONDS)
             for child in running:
-                _signal_group(child.process, signal.SIGKILL)
+                local_interfaces.signal_process_group(child.process.pid, signal.SIGKILL)
             if pending:
                 await asyncio.wait(pending)
 
@@ -279,104 +259,54 @@ async def _wait_healthy(child: _Child, deadline: float) -> None:
     )
 
 
+def _child_command(
+    name: str,
+    port: int,
+    *,
+    token: str,
+    web_dist: Path | None,
+    environment: dict[str, str],
+) -> tuple[list[str], dict[str, str]]:
+    """Return one interface's Hermes CLI arguments and environment."""
+    child_environment = {
+        key: value
+        for key, value in environment.items()
+        if not key.startswith("API_SERVER_")
+    }
+    if name == "api":
+        child_environment.update(
+            API_SERVER_KEY=token,
+            API_SERVER_HOST="127.0.0.1",
+            API_SERVER_PORT=str(port),
+        )
+        return ["gateway", "run"], child_environment
+    child_environment["HERMES_WEB_DIST"] = str(web_dist)
+    # --isolated keeps one dashboard per runtime instead of attaching to another
+    # runtime's dashboard on this host.
+    return [
+        "dashboard",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        str(port),
+        "--no-open",
+        "--skip-build",
+        "--isolated",
+    ], child_environment
+
+
 async def _http_status(port: int, path: str) -> int | None:
-    try:
-        reader, writer = await asyncio.wait_for(
-            asyncio.open_connection("127.0.0.1", port), timeout=1.0
-        )
-    except (OSError, asyncio.TimeoutError):
-        return None
-    try:
-        writer.write(
-            f"GET {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n"
-            "Connection: close\r\n\r\n".encode("ascii")
-        )
-        await writer.drain()
-        status_line = await asyncio.wait_for(reader.readline(), timeout=1.0)
-    except (OSError, asyncio.TimeoutError):
-        return None
-    finally:
-        writer.close()
-    parts = status_line.split()
-    return int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None
+    """Return a loopback GET's status, or None when nothing answers."""
 
-
-def _signal_group(process: asyncio.subprocess.Process, signum: int) -> None:
-    """Signal a child's process group, or only the child where that's denied.
-
-    OpenShell's sandbox denies signals to a process group with EPERM.
-    """
-
-    try:
-        os.killpg(process.pid, signum)
-    except ProcessLookupError:
-        pass
-    except PermissionError:
+    def get() -> int | None:
+        # No proxies: the sandbox's proxy can't reach this process's loopback.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
         try:
-            os.kill(process.pid, signum)
-        except ProcessLookupError:
-            pass
-
-
-def _port_available(port: int) -> bool:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as candidate:
-        try:
-            candidate.bind(("127.0.0.1", port))
+            with opener.open(f"http://127.0.0.1:{port}{path}", timeout=1.0) as response:
+                return response.status
+        except urllib.error.HTTPError as error:
+            return error.code
         except OSError:
-            return False
-    return True
+            return None
 
-
-def _port_listener_in_session(port: int, session_id: int) -> bool:
-    """Return whether a process in one session listens on a TCP port.
-
-    Reads Linux procfs, so a health response can be tied to the interface
-    process rather than to another process that already held the port.
-    """
-
-    sockets = set()
-    for table in ("/proc/net/tcp", "/proc/net/tcp6"):
-        try:
-            rows = Path(table).read_text(encoding="ascii").splitlines()[1:]
-        except OSError:
-            continue
-        for row in rows:
-            fields = row.split()
-            if fields[3] == "0A" and int(fields[1].rsplit(":", 1)[1], 16) == port:
-                sockets.add(f"socket:[{fields[9]}]")
-    for process in Path("/proc").iterdir():
-        if not process.name.isdigit():
-            continue
-        try:
-            if os.getsid(int(process.name)) != session_id:
-                continue
-            for descriptor in (process / "fd").iterdir():
-                if os.readlink(descriptor) in sockets:
-                    return True
-        except OSError:
-            continue
-    return False
-
-
-def _write_private_file(path: Path, payload: str) -> None:
-    """Atomically write an owner-only file in an owner-only directory."""
-
-    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    os.chmod(path.parent, 0o700)
-    descriptor, temporary_name = tempfile.mkstemp(
-        dir=path.parent, prefix=f".{path.name}."
-    )
-    try:
-        os.fchmod(descriptor, 0o600)
-        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
-            descriptor = -1
-            stream.write(payload)
-        os.replace(temporary_name, path)
-    except BaseException:
-        if descriptor >= 0:
-            os.close(descriptor)
-        try:
-            os.unlink(temporary_name)
-        except FileNotFoundError:
-            pass
-        raise
+    return await asyncio.to_thread(get)

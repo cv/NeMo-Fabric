@@ -28,6 +28,7 @@ pytestmark = pytest.mark.usefixtures("requires_hermes_agent")
 
 if importlib.util.find_spec("run_agent") is not None:
     from nemo_fabric_adapters.hermes import adapter
+    from nemo_fabric_adapters.common import local_interfaces
     from nemo_fabric_adapters.hermes import configuration
     from nemo_fabric_adapters.hermes import interfaces
 
@@ -396,7 +397,7 @@ async def test_hermes_interface_answered_by_another_process_fails_start(
     monkeypatch, tmp_path: Path, api_server: str
 ):
     monkeypatch.setattr(
-        interfaces, "_port_listener_in_session", MagicMock(return_value=False)
+        local_interfaces, "port_listener_in_session", MagicMock(return_value=False)
     )
     runtime = adapter.HermesRuntime()
 
