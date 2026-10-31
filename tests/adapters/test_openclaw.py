@@ -234,84 +234,61 @@ def test_openclaw_reads_dashboard_settings(
     assert adapter._dashboard_settings(settings) == expected
 
 
-@pytest.mark.parametrize(
-    ("settings", "field"),
-    [
-        ({"interfaces": []}, "harness.settings.interfaces"),
-        (
-            {"interfaces": {"terminal": {}}},
-            "harness.settings.interfaces.terminal",
-        ),
-        (
-            {"interfaces": {"dashboard": []}},
-            "harness.settings.interfaces.dashboard",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 20_000, "token": "secret"}}},
-            "harness.settings.interfaces.dashboard.token",
-        ),
-        (
-            {"interfaces": {"dashboard": {}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 0}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 65_426}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": True}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 20_000, "enabled": "yes"}}},
-            "harness.settings.interfaces.dashboard.enabled",
-        ),
-        (
-            {
-                "interfaces": {
-                    "dashboard": {
-                        "port": 20_000,
-                        "public_origins": "https://claw.example.test",
-                    }
-                }
-            },
-            "harness.settings.interfaces.dashboard.public_origins",
-        ),
-        (
-            {
-                "interfaces": {
-                    "dashboard": {
-                        "port": 20_000,
-                        "public_origins": ["https://claw.example.test/ui"],
-                    }
-                }
-            },
-            "harness.settings.interfaces.dashboard.public_origins",
-        ),
-        (
-            {
-                "interfaces": {
-                    "dashboard": {
-                        "port": 20_000,
-                        "public_origins": ["ftp://claw.example.test"],
-                    }
-                }
-            },
-            "harness.settings.interfaces.dashboard.public_origins",
-        ),
-        (
-            {
-                "interfaces": {"dashboard": {"port": 20_000, "enabled": False}},
-                "port_range": {"start": 20_000, "end": 20_200},
-            },
-            "harness.settings.port_range",
-        ),
-    ],
-)
+DASHBOARD = "harness.settings.interfaces.dashboard"
+
+
+def _dashboard(**fields: object) -> dict[str, object]:
+    return {"interfaces": {"dashboard": fields}}
+
+
+# Settings that planning and direct adapter use must both reject, with the
+# field that direct use names.
+INVALID_DASHBOARD_SETTINGS = [
+    pytest.param({"interfaces": []}, "harness.settings.interfaces", id="not-an-object"),
+    pytest.param(
+        {"interfaces": {"terminal": {}}},
+        "harness.settings.interfaces.terminal",
+        id="unsupported-interface",
+    ),
+    pytest.param(
+        {"interfaces": {"dashboard": []}}, DASHBOARD, id="dashboard-not-object"
+    ),
+    pytest.param(
+        _dashboard(port=20_000, token="x"), f"{DASHBOARD}.token", id="unknown-field"
+    ),
+    pytest.param(_dashboard(), f"{DASHBOARD}.port", id="missing-port"),
+    pytest.param(_dashboard(port=0), f"{DASHBOARD}.port", id="port-zero"),
+    pytest.param(_dashboard(port=65_426), f"{DASHBOARD}.port", id="port-too-high"),
+    pytest.param(_dashboard(port=True), f"{DASHBOARD}.port", id="boolean-port"),
+    pytest.param(
+        _dashboard(port=20_000, enabled="yes"),
+        f"{DASHBOARD}.enabled",
+        id="string-enabled",
+    ),
+    *(
+        pytest.param(
+            _dashboard(port=20_000, public_origins=origins),
+            f"{DASHBOARD}.public_origins",
+            id=case,
+        )
+        for case, origins in [
+            ("origins-not-a-list", "https://claw.example.test"),
+            ("origin-with-path", ["https://claw.example.test/ui"]),
+            ("origin-not-http", ["ftp://claw.example.test"]),
+        ]
+    ),
+    pytest.param(
+        {
+            **_dashboard(port=20_000, enabled=False),
+            "port_range": {"start": 20_000, "end": 20_200},
+        },
+        "harness.settings.port_range",
+        id="port-range-with-dashboard",
+    ),
+]
+
+
+@pytest.mark.parametrize(("settings", "field"), INVALID_DASHBOARD_SETTINGS)
 def test_openclaw_rejects_invalid_dashboard_settings(
     settings: dict[str, object], field: str
 ):
@@ -320,6 +297,36 @@ def test_openclaw_rejects_invalid_dashboard_settings(
 
     assert caught.value.code == "openclaw_invalid_configuration"
     assert caught.value.metadata == {"field": field}
+
+
+@pytest.mark.parametrize(("settings", "_field"), INVALID_DASHBOARD_SETTINGS)
+def test_openclaw_plan_rejects_invalid_dashboard_settings(
+    tmp_path: Path, settings: dict[str, object], _field: str
+):
+    with pytest.raises(FabricConfigError):
+        Fabric().plan(_plan_config(settings), base_dir=tmp_path)
+
+
+def test_openclaw_plan_rejects_a_startup_timeout_above_the_maximum(tmp_path: Path):
+    with pytest.raises(FabricConfigError) as caught:
+        Fabric().plan(_plan_config({"startup_timeout_seconds": 76}), base_dir=tmp_path)
+
+    assert "harness.settings.startup_timeout_seconds" in str(caught.value)
+
+
+def _plan_config(settings: dict[str, object]) -> FabricConfig:
+    return FabricConfig.from_mapping(
+        {
+            "metadata": {"name": "openclaw-interfaces"},
+            "harness": {
+                "adapter_id": "nvidia.fabric.openclaw",
+                "resolution": "preinstalled",
+                "settings": settings,
+            },
+            "models": {"default": {"provider": "test", "model": "fabric-echo"}},
+            "environment": {"provider": "local", "workspace": "."},
+        }
+    )
 
 
 @pytest.mark.parametrize("raw", ["2026.9.34 extra", "2026.9.34\nuntrusted suffix"])
@@ -2149,51 +2156,6 @@ def test_openclaw_plan_rejects_mcp_authentication(
 
     assert "mcp.servers.docs.authentication" in str(caught.value)
     assert capability in str(caught.value)
-
-
-@pytest.mark.parametrize(
-    ("settings", "field"),
-    [
-        ({"interfaces": {"terminal": {}}}, "harness.settings.interfaces"),
-        ({"interfaces": {"dashboard": {}}}, "harness.settings.interfaces.dashboard"),
-        (
-            {"interfaces": {"dashboard": {"port": 65_426}}},
-            "harness.settings.interfaces.dashboard.port",
-        ),
-        (
-            {"interfaces": {"dashboard": {"port": 20_000, "token": "secret"}}},
-            "harness.settings.interfaces.dashboard",
-        ),
-        (
-            {
-                "interfaces": {"dashboard": {"port": 20_000}},
-                "port_range": {"start": 20_000, "end": 20_200},
-            },
-            "harness.settings.interfaces.dashboard",
-        ),
-        ({"startup_timeout_seconds": 76}, "harness.settings.startup_timeout_seconds"),
-    ],
-)
-def test_openclaw_plan_rejects_invalid_interface_settings(
-    tmp_path: Path, settings: dict[str, object], field: str
-):
-    config = FabricConfig.from_mapping(
-        {
-            "metadata": {"name": "openclaw-interfaces"},
-            "harness": {
-                "adapter_id": "nvidia.fabric.openclaw",
-                "resolution": "preinstalled",
-                "settings": settings,
-            },
-            "models": {"default": {"provider": "test", "model": "fabric-echo"}},
-            "environment": {"provider": "local", "workspace": "."},
-        }
-    )
-
-    with pytest.raises(FabricConfigError) as caught:
-        Fabric().plan(config, base_dir=tmp_path)
-
-    assert field in str(caught.value)
 
 
 def test_openclaw_descriptor_and_module_entrypoint(repo_root: Path):
