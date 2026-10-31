@@ -754,6 +754,42 @@ async def test_openclaw_services_reject_interfaces(
     assert runtime._process is None
 
 
+async def test_openclaw_startup_timeout_bounds_all_of_start(
+    mock_openclaw: Path, tmp_path: Path, monkeypatch
+):
+    # Each command finishes within the timeout, but the two together don't.
+    monkeypatch.setenv("FAKE_OPENCLAW_COMMAND_DELAY", "0.6")
+    monkeypatch.setenv("FAKE_OPENCLAW_CAPTURE", str(tmp_path / "config.json"))
+    config = _config(mock_openclaw)
+    assert config.harness is not None
+    config.harness.settings["startup_timeout_seconds"] = 1
+    runtime = adapter.OpenClawRuntime()
+
+    with pytest.raises(adapter.lifecycle.LifecycleError) as caught:
+        await runtime.start(
+            {
+                "config": config,
+                "runtime_context": _context(tmp_path).to_mapping(),
+                "base_dir": str(tmp_path),
+            }
+        )
+
+    assert caught.value.code == "openclaw_command_timeout"
+    assert runtime._process is None
+
+
+def test_openclaw_waits_a_minute_for_startup_by_default(repo_root: Path):
+    descriptor = json.loads(
+        (repo_root / "adapters/python/openclaw/openclaw.fabric-adapter.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    timeout = descriptor["settings_schema"]["properties"]["startup_timeout_seconds"]
+
+    assert timeout["default"] == 60
+    assert adapter.DEFAULT_STARTUP_TIMEOUT_SECONDS == 60
+
+
 async def test_openclaw_rejects_startup_timeout_above_core_limit(
     mock_openclaw: Path, tmp_path: Path
 ):
