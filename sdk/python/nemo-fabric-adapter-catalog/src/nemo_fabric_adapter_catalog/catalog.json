@@ -2139,8 +2139,8 @@
               "type": "number"
             },
             "startup_timeout_seconds": {
-              "default": 30,
-              "description": "Maximum time to wait for the OpenClaw Gateway to become ready, within NeMo Fabric's 90-second start limit.",
+              "default": 60,
+              "description": "One deadline for all of start, from checking the OpenClaw command to the Gateway becoming ready, within NeMo Fabric's 90-second start limit.",
               "exclusiveMinimum": 0,
               "maximum": 75,
               "type": "number"
@@ -2154,7 +2154,7 @@
         "name": "nemo-fabric-adapters-openclaw",
         "version": "0.7.0"
       },
-      "sha256": "2daeaf79951bf048c93183e7f21395149509e25066e3384e612dcfe0f881fa10",
+      "sha256": "6c7440f20bf5cbf5e2ef852976f7e56c73d3e7882fb7bbc7e3fd329495400ad7",
       "source": "adapters/python/openclaw/openclaw.fabric-adapter.json"
     },
     "nvidia.fabric.opencode": {
