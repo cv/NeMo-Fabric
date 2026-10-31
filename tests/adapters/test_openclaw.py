@@ -630,6 +630,8 @@ async def test_openclaw_runtime_generates_config_invokes_and_cleans_up(
     assert generated["mcp"]["servers"]["remote"]["transport"] == ("streamable-http")
     assert "auth" not in generated["mcp"]["servers"]["remote"]
     assert generated["gateway"]["controlUi"] == {"enabled": False}
+    # The sandbox would deny OpenClaw's model catalog lookup anyway.
+    assert generated["models"]["catalogRefresh"] == {"enabled": False}
     assert not (tmp_path / "artifacts").exists()
     assert not state_root.exists()
 
