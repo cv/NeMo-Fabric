@@ -295,12 +295,21 @@ def _child_command(
     ], child_environment
 
 
+class _NoRedirects(urllib.request.HTTPRedirectHandler):
+    """Return a redirect as its own status instead of following it."""
+
+    def redirect_request(self, *args: Any, **kwargs: Any) -> None:
+        return None
+
+
 async def _http_status(port: int, path: str) -> int | None:
     """Return a loopback GET's status, or None when nothing answers."""
 
     def get() -> int | None:
         # No proxies: the sandbox's proxy can't reach this process's loopback.
-        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+        opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}), _NoRedirects()
+        )
         try:
             with opener.open(f"http://127.0.0.1:{port}{path}", timeout=1.0) as response:
                 return response.status

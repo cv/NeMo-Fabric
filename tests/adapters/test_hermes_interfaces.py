@@ -6,12 +6,14 @@
 from __future__ import annotations
 
 import asyncio
+import http.server
 import importlib.util
 import json
 import os
 import signal
 import socket
 import sys
+import threading
 import time
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -234,6 +236,30 @@ def test_hermes_config_without_interfaces_keeps_the_model_unchanged():
         "base_url": "http://127.0.0.1:9/v1",
     }
     assert "cron_drain_timeout" not in config["agent"]
+
+
+async def test_hermes_health_check_counts_a_redirect_as_unhealthy():
+    class Redirect(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            if self.path == "/health":
+                self.send_response(302)
+                self.send_header("Location", "/elsewhere")
+            else:
+                self.send_response(200)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    with http.server.ThreadingHTTPServer(("127.0.0.1", 0), Redirect) as server:
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        try:
+            status = await interfaces._http_status(server.server_port, "/health")
+        finally:
+            server.shutdown()
+
+    assert status == 302
 
 
 @pytest.mark.skipif(sys.platform != "linux", reason="Reads Linux procfs")
