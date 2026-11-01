@@ -124,17 +124,6 @@ def dashboard_port_fixture() -> int:
     return adapter._select_port({})
 
 
-def test_openclaw_port_availability_checks_one_port(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    mock_socket = MagicMock(spec=adapter.socket.socket)
-    monkeypatch.setattr(adapter.socket, "socket", MagicMock(return_value=mock_socket))
-
-    assert adapter._port_available(20_000)
-    mock_socket.bind.assert_called_once_with(("127.0.0.1", 20_000))
-    mock_socket.close.assert_called_once_with()
-
-
 def test_openclaw_selects_os_assigned_base_port(monkeypatch: pytest.MonkeyPatch):
     mock_server = MagicMock(spec=adapter.socket.socket)
     mock_server.__enter__.return_value = mock_server
@@ -643,7 +632,7 @@ async def test_openclaw_dashboard_serves_control_ui_with_a_token_file(
     token_path = _dashboard_token(tmp_path)
     runtime = adapter.OpenClawRuntime()
 
-    await runtime.start(
+    started = await runtime.start(
         {
             "config": _dashboard_config(
                 mock_openclaw,
@@ -673,6 +662,16 @@ async def test_openclaw_dashboard_serves_control_ui_with_a_token_file(
             f"http://localhost:{dashboard_port}",
             "https://claw.example.test",
         ],
+    }
+    assert started == {
+        "interfaces": {
+            "dashboard": {
+                "kind": "http",
+                "address": "127.0.0.1",
+                "port": dashboard_port,
+                "credential_file": str(token_path),
+            }
+        }
     }
     assert stored_token == gateway_token
     assert token_mode == 0o600
@@ -740,7 +739,7 @@ async def test_openclaw_stop_ends_the_gateway_where_group_signals_are_denied(
 ):
     os.environ["FAKE_OPENCLAW_CAPTURE"] = str(tmp_path / "config.json")
     runtime = adapter.OpenClawRuntime()
-    await runtime.start(
+    started = await runtime.start(
         {
             "config": _config(mock_openclaw),
             "runtime_context": _context(tmp_path).to_mapping(),
@@ -748,6 +747,8 @@ async def test_openclaw_stop_ends_the_gateway_where_group_signals_are_denied(
         }
     )
     gateway = runtime._process
+    # Without interfaces, start reports none.
+    assert started is None
 
     # OpenShell's sandbox denies signals to a process group with EPERM.
     def deny_group_signals(_pgid: int, _signum: int) -> None:

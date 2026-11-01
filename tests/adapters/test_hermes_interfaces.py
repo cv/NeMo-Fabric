@@ -242,7 +242,7 @@ async def test_hermes_serves_api_and_dashboard_with_the_configured_model(
 ):
     api_port, dashboard_port = _free_port(), _free_port()
     runtime = adapter.HermesRuntime()
-    await runtime.start(
+    started = await runtime.start(
         _payload(
             tmp_path,
             {
@@ -284,6 +284,21 @@ async def test_hermes_serves_api_and_dashboard_with_the_configured_model(
         await runtime.stop()
     model_keys = requests.get(f"{api_server}/_chat_authorization_headers", timeout=5)
 
+    assert started == {
+        "interfaces": {
+            "api": {
+                "kind": "http",
+                "address": "127.0.0.1",
+                "port": api_port,
+                "credential_file": str(token_path),
+            },
+            "dashboard": {
+                "kind": "http",
+                "address": "127.0.0.1",
+                "port": dashboard_port,
+            },
+        }
+    }
     assert token_mode == 0o600
     assert unauthorized.status_code == 401
     assert reply.status_code == 200, reply.text

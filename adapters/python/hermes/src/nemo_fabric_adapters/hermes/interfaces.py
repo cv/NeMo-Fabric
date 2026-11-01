@@ -31,6 +31,9 @@ STOP_GRACE_SECONDS = 5.0
 GATEWAY_DRAIN_TIMEOUT_SECONDS = 3
 
 
+PORT_UNAVAILABLE = "hermes_interface_port_unavailable"
+
+
 def _invalid(field: str, message: str) -> lifecycle.LifecycleError:
     return lifecycle.LifecycleError(
         "hermes_invalid_configuration",
@@ -42,47 +45,31 @@ def _invalid(field: str, message: str) -> lifecycle.LifecycleError:
 def interface_ports(settings: dict[str, Any]) -> dict[str, int]:
     """Return the enabled interfaces' loopback ports, keyed by interface name."""
 
-    interfaces = settings.get("interfaces", {})
-    if not isinstance(interfaces, dict):
-        raise _invalid("interfaces", "Hermes interfaces must be an object")
-    unsupported = sorted(set(interfaces) - set(HEALTH_PATHS))
-    if unsupported:
-        raise _invalid(
-            f"interfaces.{unsupported[0]}",
-            f"Hermes doesn't support the {unsupported[0]!r} interface",
+    interfaces = local_interfaces.interface_settings(
+        settings,
+        {name: local_interfaces.InterfaceSpec() for name in HEALTH_PATHS},
+        adapter="Hermes",
+        code="hermes_invalid_configuration",
+    )
+    return {
+        name: interface["port"]
+        for name, interface in interfaces.items()
+        if interface["enabled"]
+    }
+
+
+def handle_interfaces(ports: dict[str, int], token_path: Path) -> dict[str, Any]:
+    """Return the runtime handle's entries for the enabled interfaces.
+
+    Only the API server has a credential; the dashboard has no sign-in.
+    """
+
+    return {
+        name: local_interfaces.http_interface(
+            port, token_path if name == "api" else None
         )
-    ports: dict[str, int] = {}
-    for name in HEALTH_PATHS:
-        if name not in interfaces:
-            continue
-        field = f"interfaces.{name}"
-        interface = interfaces[name]
-        if not isinstance(interface, dict):
-            raise _invalid(field, f"Hermes {name} interface must be an object")
-        unknown = sorted(set(interface) - {"enabled", "port"})
-        if unknown:
-            raise _invalid(
-                f"{field}.{unknown[0]}",
-                f"Hermes {name} interface doesn't accept {unknown[0]!r}",
-            )
-        port = interface.get("port")
-        if (
-            isinstance(port, bool)
-            or not isinstance(port, int)
-            or not 1 <= port <= 65535
-        ):
-            raise _invalid(
-                f"{field}.port",
-                f"Hermes {name} port must be an integer from 1 to 65535",
-            )
-        enabled = interface.get("enabled", True)
-        if not isinstance(enabled, bool):
-            raise _invalid(
-                f"{field}.enabled", f"Hermes {name} enabled must be a boolean"
-            )
-        if enabled:
-            ports[name] = port
-    return ports
+        for name, port in ports.items()
+    }
 
 
 def startup_timeout(settings: dict[str, Any]) -> float:
@@ -141,10 +128,9 @@ class InterfaceChildren:
                 metadata={"field": "harness.settings.interfaces.dashboard.port"},
             )
         for name, port in ports.items():
-            if not local_interfaces.port_available(port):
-                raise _port_unavailable(
-                    name, port, f"Hermes {name} port {port} is already in use"
-                )
+            local_interfaces.require_ports_free(
+                name, [port], adapter="Hermes", code=PORT_UNAVAILABLE
+            )
         web_dist = _web_dist() if "dashboard" in ports else None
         token = secrets.token_urlsafe(32)
         log_dir = hermes_home / "logs"
@@ -177,16 +163,14 @@ class InterfaceChildren:
             finally:
                 for wait in waits:
                     wait.cancel()
-            if sys.platform == "linux":
-                for child in self._children:
-                    if not local_interfaces.port_listener_in_session(
-                        child.port, child.process.pid
-                    ):
-                        raise _port_unavailable(
-                            child.name,
-                            child.port,
-                            f"Hermes {child.name} port {child.port} answered from another process",
-                        )
+            for child in self._children:
+                local_interfaces.require_port_owner(
+                    child.name,
+                    child.port,
+                    child.process.pid,
+                    adapter="Hermes",
+                    code=PORT_UNAVAILABLE,
+                )
             if "api" in ports:
                 local_interfaces.write_private_file(token_path, token)
                 self._token_path = token_path
@@ -211,14 +195,6 @@ class InterfaceChildren:
                 local_interfaces.signal_process_group(child.process.pid, signal.SIGKILL)
             if pending:
                 await asyncio.wait(pending)
-
-
-def _port_unavailable(name: str, port: int, message: str) -> lifecycle.LifecycleError:
-    return lifecycle.LifecycleError(
-        "hermes_interface_port_unavailable",
-        message,
-        metadata={"field": f"harness.settings.interfaces.{name}.port", "port": port},
-    )
 
 
 def _web_dist() -> Path:

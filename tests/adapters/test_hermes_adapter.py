@@ -1222,16 +1222,6 @@ async def test_runtime_start_overrides_inherited_terminal_environment(
         await adapter.HermesRuntime().start(payload)
 
 
-def test_artifact_root_resolves_relative_to_base_dir(tmp_path: Path):
-    assert (
-        adapter._artifact_root(
-            _runtime_context(artifact_root="run-artifacts"),
-            str(tmp_path),
-        )
-        == (tmp_path / "run-artifacts").resolve()
-    )
-
-
 @pytest.fixture(name="started_hermes_runtime")
 def started_hermes_runtime_fixture(
     monkeypatch,

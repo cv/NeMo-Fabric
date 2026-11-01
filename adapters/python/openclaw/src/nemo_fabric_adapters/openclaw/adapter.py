@@ -200,46 +200,24 @@ def _dashboard_settings(settings: dict[str, Any]) -> dict[str, Any] | None:
             metadata={"field": f"harness.settings.{field}"},
         )
 
-    interfaces = settings.get("interfaces", {})
-    if not isinstance(interfaces, dict):
-        raise invalid("interfaces", "OpenClaw interfaces must be an object")
-    unsupported = sorted(set(interfaces) - {"dashboard"})
-    if unsupported:
-        raise invalid(
-            f"interfaces.{unsupported[0]}",
-            f"OpenClaw doesn't support the {unsupported[0]!r} interface",
-        )
-    if "dashboard" not in interfaces:
+    dashboard = local_interfaces.interface_settings(
+        settings,
+        {
+            "dashboard": local_interfaces.InterfaceSpec(
+                fields=frozenset({"public_origins"}), max_port=MAX_DASHBOARD_PORT
+            )
+        },
+        adapter="OpenClaw",
+        code="openclaw_invalid_configuration",
+    ).get("dashboard")
+    if dashboard is None:
         return None
-    dashboard = interfaces["dashboard"]
-    if not isinstance(dashboard, dict):
-        raise invalid("interfaces.dashboard", "OpenClaw dashboard must be an object")
-    unknown = sorted(set(dashboard) - {"enabled", "port", "public_origins"})
-    if unknown:
-        raise invalid(
-            f"interfaces.dashboard.{unknown[0]}",
-            f"OpenClaw dashboard doesn't accept {unknown[0]!r}",
-        )
     if "port_range" in settings:
         raise invalid(
             "port_range", "OpenClaw port_range can't be combined with a dashboard port"
         )
-    port = dashboard.get("port")
-    if (
-        isinstance(port, bool)
-        or not isinstance(port, int)
-        or not 1 <= port <= MAX_DASHBOARD_PORT
-    ):
-        raise invalid(
-            "interfaces.dashboard.port",
-            f"OpenClaw dashboard port must be an integer from 1 to {MAX_DASHBOARD_PORT}",
-        )
-    enabled = dashboard.get("enabled", True)
-    if not isinstance(enabled, bool):
-        raise invalid(
-            "interfaces.dashboard.enabled",
-            "OpenClaw dashboard enabled must be a boolean",
-        )
+    port = dashboard["port"]
+    enabled = dashboard["enabled"]
     origins = dashboard.get("public_origins", [])
     if not isinstance(origins, list) or not all(map(_is_origin, origins)):
         raise invalid(
@@ -252,14 +230,8 @@ def _dashboard_settings(settings: dict[str, Any]) -> dict[str, Any] | None:
 
 
 def _dashboard_token_path(context: contract.RuntimeContext, base_dir: Path) -> Path:
-    root = context.artifacts.root
-    artifact_root = (base_dir / str(root)).resolve() if root else base_dir / "artifacts"
     return (
-        artifact_root
-        / ".fabric"
-        / "openclaw"
-        / "runtimes"
-        / context.runtime_id
+        local_interfaces.runtime_directory(context, base_dir, "openclaw")
         / "interfaces"
         / "dashboard.token"
     )
@@ -438,17 +410,7 @@ def _resolve_command(settings: dict[str, Any], base_dir: Path) -> Path:
     return candidate.resolve()
 
 
-def _port_available(port: int) -> bool:
-    """Return whether one loopback TCP port is available."""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    try:
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.bind(("127.0.0.1", port))
-        return True
-    except (OSError, OverflowError):
-        return False
-    finally:
-        sock.close()
+_port_available = local_interfaces.port_available
 
 
 def _select_port(settings: dict[str, Any]) -> int:
@@ -1217,16 +1179,12 @@ class OpenClawRuntime:
             port = _select_port(settings)
         else:
             port = dashboard["port"]
-            for candidate in (port, port + 2):
-                if not _port_available(candidate):
-                    raise lifecycle.LifecycleError(
-                        "openclaw_interface_port_unavailable",
-                        f"OpenClaw dashboard port {candidate} is already in use",
-                        metadata={
-                            "field": "harness.settings.interfaces.dashboard.port",
-                            "port": candidate,
-                        },
-                    )
+            local_interfaces.require_ports_free(
+                "dashboard",
+                (port, port + 2),
+                adapter="OpenClaw",
+                code="openclaw_interface_port_unavailable",
+            )
 
         # Generate a one-time use token for the OpenClaw gateway
         token = secrets.token_urlsafe(48)
@@ -1309,20 +1267,13 @@ class OpenClawRuntime:
             self._install_signal_handlers()
             await self._wait_started(port, token, startup_remaining())
             if dashboard is not None:
-                if (
-                    sys.platform == "linux"
-                    and not local_interfaces.port_listener_in_session(
-                        port, self._process.pid
-                    )
-                ):
-                    raise lifecycle.LifecycleError(
-                        "openclaw_interface_port_unavailable",
-                        f"OpenClaw dashboard port {port} answered from another process",
-                        metadata={
-                            "field": "harness.settings.interfaces.dashboard.port",
-                            "port": port,
-                        },
-                    )
+                local_interfaces.require_port_owner(
+                    "dashboard",
+                    port,
+                    self._process.pid,
+                    adapter="OpenClaw",
+                    code="openclaw_interface_port_unavailable",
+                )
                 token_path = _dashboard_token_path(context, base_dir)
                 local_interfaces.write_private_file(token_path, token)
                 self._dashboard_token_path = token_path
@@ -1368,7 +1319,15 @@ class OpenClawRuntime:
                 self._agent_id,
                 openclaw_version=version,
             )
-        return None
+        if self._dashboard_token_path is None:
+            return None
+        return {
+            "interfaces": {
+                "dashboard": local_interfaces.http_interface(
+                    port, self._dashboard_token_path
+                )
+            }
+        }
 
     def _client_for(self, settings: dict[str, Any], token: str) -> httpx.AsyncClient:
         return httpx.AsyncClient(

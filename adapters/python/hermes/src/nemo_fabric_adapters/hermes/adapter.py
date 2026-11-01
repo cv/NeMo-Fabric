@@ -32,6 +32,7 @@ from nemo_fabric_adapter_contract.models import RuntimeContext
 from nemo_fabric_adapters.common import instructions as common_instructions
 from nemo_fabric_adapters.common import lifecycle
 from nemo_fabric_adapters.hermes import configuration
+from nemo_fabric_adapters.common import local_interfaces
 from nemo_fabric_adapters.hermes import interfaces
 from nemo_fabric_adapters.hermes import telemetry
 
@@ -73,7 +74,7 @@ class HermesRuntime:
         self._active_invoke_task: asyncio.Task[tuple[dict[str, Any], str]] | None = None
         self._interfaces = interfaces.InterfaceChildren()
 
-    async def start(self, payload: dict[str, Any]) -> None:
+    async def start(self, payload: dict[str, Any]) -> dict[str, Any] | None:
         if self._started:
             raise lifecycle.LifecycleError(
                 "hermes_runtime_already_started",
@@ -109,12 +110,8 @@ class HermesRuntime:
             model_config = configuration._selected_model(agent_config)
             self._model_config = model_config
             self._runtime_id = runtime_context.runtime_id
-            self._hermes_home = (
-                _artifact_root(runtime_context, common_utils.base_dir(payload))
-                / ".fabric"
-                / "hermes"
-                / "runtimes"
-                / runtime_context.runtime_id
+            self._hermes_home = local_interfaces.runtime_directory(
+                runtime_context, common_utils.base_dir(payload), "hermes"
             )
             self._hermes_home.mkdir(parents=True, exist_ok=True)
             os.environ["HOME"] = str(self._hermes_home)
@@ -236,18 +233,27 @@ class HermesRuntime:
                     # Hermes's own processes read a provider's key from its
                     # default variable, not from api_key_env.
                     environment[provider_key_env] = api_key
+                token_path = self._hermes_home / "interfaces" / "api.token"
                 await self._interfaces.start(
                     interface_ports,
                     hermes_home=self._hermes_home,
-                    token_path=self._hermes_home / "interfaces" / "api.token",
+                    token_path=token_path,
                     timeout=startup_timeout,
                     environment=environment,
                 )
+                output = {
+                    "interfaces": interfaces.handle_interfaces(
+                        interface_ports, token_path
+                    )
+                }
+            else:
+                output = None
             self._agent_config = agent_config
             self._started = True
         except BaseException:
             await self.stop()
             raise
+        return output
 
     async def invoke(
         self,
@@ -690,16 +696,6 @@ class HermesRuntime:
                 "hermes_runtime_stop_failed",
                 "Hermes runtime failed to stop cleanly",
             ) from errors[0]
-
-
-def _artifact_root(runtime_context: RuntimeContext, base_dir: str) -> Path:
-    root = runtime_context.artifacts.root
-    if root:
-        artifact_root = Path(str(root))
-        if not artifact_root.is_absolute():
-            artifact_root = Path(base_dir) / artifact_root
-        return artifact_root.resolve()
-    return Path(base_dir).resolve() / "artifacts"
 
 
 def _invoke_hermes_turn(

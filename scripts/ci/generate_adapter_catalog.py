@@ -18,7 +18,9 @@ BUNDLE = CATALOG / "src/nemo_fabric_adapter_catalog/catalog.json"
 INTERFACE_SETTINGS = Path("schemas/adapter-contract/interface-settings.schema.json")
 
 
-def check_interface_settings(root: Path, descriptor: dict[str, Any], source: Path) -> None:
+def check_interface_settings(
+    root: Path, descriptor: dict[str, Any], source: Path
+) -> None:
     """Keep a descriptor's interface settings on the shared adapter-contract fragment.
 
     Each interface the descriptor declares is listed under
