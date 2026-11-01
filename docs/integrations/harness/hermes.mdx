@@ -140,6 +140,17 @@ harness = HarnessConfig(
   the page, so anyone who can reach the port can use the dashboard and its
   browser chat, which runs the agent. Hermes requires an auth provider for a
   non-loopback dashboard, which this adapter doesn't configure.
+- The dashboard serves every page Hermes ships: Chat, Sessions, Files, Models,
+  Logs, Cron, Skills, Plugins, MCP, Channels, Webhooks, Pairing, Profiles,
+  Config, Keys, System, and Documentation. The adapter turns none of them off.
+  Hermes hides Analytics unless `dashboard.show_token_analytics` is set, which
+  the generated configuration doesn't do. Browser chat runs Hermes's terminal UI
+  with Node.js and needs its built bundle, `hermes_cli/tui_dist/entry.js` or
+  `dist/entry.js` under `HERMES_TUI_DIR`; in a source checkout without one,
+  Hermes builds `ui-tui` with npm when chat opens.
+- The adapter sets `HERMES_YOLO_MODE=1` unless its environment already sets
+  the variable, and both children inherit it, so browser chat and API server
+  runs skip Hermes's command approvals, as NeMo Fabric invocations do.
 - The dashboard's gateway actions, such as restart, start Hermes processes
   outside the runtime. They replace the gateway NeMo Fabric started with one
   that has no API server, and they can keep running after `stop`.
@@ -162,6 +173,17 @@ harness = HarnessConfig(
   regenerated at the next start. NeMo Fabric doesn't promise that the API
   server's or dashboard's conversations share history with NeMo Fabric
   invocations.
+- The embedded agent, the gateway, the dashboard, and browser chat write to the
+  same Hermes home, and Hermes coordinates them. Its session database,
+  `state.db`, uses SQLite's write-ahead log, so reads don't block the writer,
+  and each write takes the database lock with `BEGIN IMMEDIATE` and retries
+  while another process holds it. Hermes uses a rollback journal instead where
+  the filesystem refuses WAL, as NFS, SMB, and cross-VM mounts (virtiofs, 9p)
+  can, or the SQLite library has WAL's reset bug. Cron jobs, `.env`, memory, and
+  skill usage take a cross-process file lock (`flock`); after 30 seconds of
+  waiting, the cron lock falls back to in-process locking. `config.yaml` is
+  replaced atomically under an in-process lock only, so when two processes save
+  it at once, the last write wins.
 - The API server needs `aiohttp`, from Hermes's `messaging` extra. The dashboard
   needs a built frontend at `HERMES_WEB_DIST`, or at Hermes's own
   `hermes_cli/web_dist`; the adapter never builds it. Interfaces need a POSIX
