@@ -39,6 +39,7 @@ The primary descriptor fields are:
 | `config` | Declares the normalized fields the adapter applies and target-native files it generates. |
 | `capabilities` | Declares optional runtime operations implemented through the adapter binding. |
 | `telemetry` | Declares telemetry outputs and integration modes the adapter produces or forwards. |
+| `interfaces` | Names the native interfaces, such as a dashboard, API server or terminal UI, that a managed runtime can serve, each with its `kind`: `http` or `terminal`. Omit it when the adapter serves none. |
 | `target_types` | Declares registered target types a shared adapter can load. Omit it for a direct harness or dedicated-agent adapter. |
 
 <Note title="Keep Claims Exact">
@@ -151,6 +152,44 @@ Schemas must be valid, self-contained JSON Schema objects. NeMo Fabric does not
 load arbitrary HTTP or file references during planning. Use
 `additionalProperties: false` unless an intentionally open compatibility
 surface is part of the adapter contract.
+
+An adapter that declares `interfaces` accepts them under
+`harness.settings.interfaces.<name>`. Copy the `$defs` of the adapter
+contract's [`interface-settings`](https://github.com/NVIDIA/NeMo-Fabric/blob/main/schemas/adapter-contract/interface-settings.schema.json)
+schema unchanged into `settings_schema` and refer to them with local `$ref`s,
+so every adapter shares the same `enabled` and `port` fields while its
+descriptor stays self-contained:
+
+```json
+"interfaces": {"dashboard": {"kind": "http"}},
+"settings_schema": {
+  "type": "object",
+  "$defs": {"interface_enabled": {"...": "copied"}, "interface_port": {"...": "copied"}},
+  "properties": {
+    "interfaces": {
+      "type": "object",
+      "properties": {
+        "dashboard": {
+          "type": "object",
+          "properties": {
+            "enabled": {"$ref": "#/$defs/interface_enabled"},
+            "port": {"$ref": "#/$defs/interface_port"}
+          },
+          "required": ["port"],
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+HTTP interfaces require `port`; terminal interfaces take none. An adapter may
+add interface-specific fields beside the shared ones. After it starts the
+interfaces, the adapter's `start` returns `{"interfaces": {...}}`, and NeMo
+Fabric reports them in the `RuntimeHandle`.
 
 **Success Check**: Each declared schema is a self-contained JSON Schema object
 with no external references.

@@ -38,6 +38,7 @@ schemas/
     ├── agent-run-request.schema.json
     ├── agent-run-result.schema.json
     ├── runtime-context.schema.json
+    ├── interface-settings.schema.json
     ├── adapter-invocation.schema.json
     ├── openai-stream-invocation.schema.json
     └── openai-stream-record.schema.json
@@ -73,8 +74,19 @@ these related representations do not drift.
 
 - `adapter-contract/adapter-check-request` and `adapter-check-result`: a health-probe request and its observation. These closed objects preserve required null fields and use fixed reason codes and evidence-source identifiers.
 - `adapter-contract/adapter-descriptor`: adapter identity, runner,
-  requirements, accepted normalized fields, schemas, telemetry support, and
-  runtime capability claims.
+  requirements, accepted normalized fields, schemas, telemetry support,
+  runtime capability claims, and the native interfaces the adapter can serve.
+  The optional `interfaces` object names each interface and its `kind`
+  (`http` or `terminal`); absent means none.
+- `adapter-contract/interface-settings`: the shared `enabled` and `port`
+  field definitions for `harness.settings.interfaces.<name>`. A descriptor
+  that declares `interfaces` copies these `$defs` unchanged into its
+  `settings_schema`, refers to them with `$ref`, lists exactly its
+  interfaces under `settings_schema.properties.interfaces.properties`, and
+  closes each object with `additionalProperties: false`. HTTP interfaces
+  require `port`; terminal interfaces take none. `just check-adapter-catalog`
+  rejects first-party descriptors whose copy drifts. TypeScript bindings have
+  no type for this fragment because it describes no runtime value.
 - `adapter-contract/adapter-target-descriptor`: separately registered target
   identity, selected adapter, target type, adapter-scoped entry point, and
   target settings schema.
@@ -103,6 +115,12 @@ descriptor schema.
   and the projected southbound `agent-run-request`. This envelope is an
   internal transport detail; the common Python host passes its members to the
   adapter as typed arguments.
+- Runtime `start` output: a managed runtime may return
+  `{"interfaces": {...}}` in the `sdk/runtime-handle` shape below. Each
+  reported interface must be declared with the same kind in the descriptor,
+  listen on a loopback address, and use rooted paths, or start fails with
+  `invalid_runtime_interfaces`. Null, or an object without `interfaces`,
+  reports none.
 - `adapter-contract/openai-stream-invocation`: current native OpenAI
   stream payload sent to an initialized persistent local adapter host. It
   contains the per-turn runtime context and request plus a NeMo Fabric-owned
@@ -127,7 +145,7 @@ descriptor schema.
 - `sdk/check-request` and `check-report`: server, runtime, or registered service target selection, the shared deadline, and ordered health evidence. Runtime and service checks default to `live`. Service requests require `service_id`, and service reports include that ID with null runtime evidence. The `service_id` field is omitted from server and runtime reports. All health reports use `fabric.check/v1alpha1`.
 - `sdk/environment-handle`: prepared execution environment context.
 - `sdk/environment-reference`: provider-specific identity of an existing caller-owned environment.
-- `sdk/runtime-handle`: active harness runtime identity and opaque adapter binding.
+- `sdk/runtime-handle`: active harness runtime identity and opaque adapter binding, plus the optional `interfaces` the runtime serves, keyed by name. An `http` entry has a loopback `address` and `port`; a `terminal` entry has a `launcher` path; either has a `credential_file` when the interface has a credential. Paths are environment-local, and credential values never appear. `fabric-agent-ctl status` returns the current handle.
 - `sdk/invocation-handle`: one request or turn sent to a runtime.
 
 ### Results, Artifacts, and Diagnostics

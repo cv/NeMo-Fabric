@@ -2,7 +2,7 @@
 title: "Module config"
 sidebar-title: "config"
 description: "NeMo Fabric config models and loading helpers."
-position: 167
+position: 170
 ---
 {/* SPDX-FileCopyrightText: Copyright (c) 2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
 SPDX-License-Identifier: Apache-2.0 */}
@@ -33,6 +33,7 @@ NeMo Fabric config models and loading helpers.
 
 - [AdapterConfigSupport](struct-adapterconfigsupport.mdx): Adapter config support.
 - [AdapterDescriptor](struct-adapterdescriptor.mdx): Language-neutral adapter descriptor for a harness integration.
+- [AdapterInterface](struct-adapterinterface.mdx): Native interface an adapter can serve, enabled under `harness.settings.interfaces.<name>`.
 - [AdapterRequirements](struct-adapterrequirements.mdx): Adapter runtime requirements.
 - [AdapterTargetDescriptor](struct-adaptertargetdescriptor.mdx): Independently registered target implemented by an adapter.
 - [AdapterTelemetryProviderSupport](struct-adaptertelemetryprovidersupport.mdx): Telemetry capabilities for one adapter-supported provider.
@@ -90,6 +91,7 @@ NeMo Fabric config models and loading helpers.
 - [DescriptorSource](enum-descriptorsource.mdx): Where NeMo Fabric discovered descriptor metadata.
 - [EnvironmentOwnership](enum-environmentownership.mdx): Whether NeMo Fabric owns the underlying environment resource.
 - [InstructionMode](enum-instructionmode.mdx): How an instruction value is applied to the selected harness.
+- [InterfaceKind](enum-interfacekind.mdx): Kind of native interface an adapter can serve.
 - [McpAuthenticationConfig](enum-mcpauthenticationconfig.mdx): MCP server authentication configuration.
 - [McpExposure](enum-mcpexposure.mdx): MCP exposure strategy.
 - [McpTransport](enum-mcptransport.mdx): MCP server transport.

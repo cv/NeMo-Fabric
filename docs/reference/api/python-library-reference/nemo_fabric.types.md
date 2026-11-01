@@ -1033,6 +1033,8 @@ Applications should treat ``runtime_binding`` as opaque. NeMo Fabric validates t
  - <b>`adapter_id`</b>:  Optional NeMo Fabric adapter identifier.
  - <b>`service_id`</b>:  Optional service used by this runtime.
  - <b>`environment`</b>:  Prepared environment snapshot.
+ - <b>`interfaces`</b>:  Native interfaces the runtime serves, keyed by interface
+ - <b>`name`</b>:  each one's ``kind``, its loopback ``address`` and ``port`` or terminal ``launcher``, and the ``credential_file`` that holds its credential when it has one. Empty when it serves none. Paths are environment-local, and credential values never appear.
 
 
 
@@ -1050,6 +1052,7 @@ The mapping exposes the following typed fields:
 | `adapter_id` | `str \| None` |
 | `service_id` | `str \| None` |
 | `environment` | `Mapping[str, Any]` |
+| `interfaces` | `Mapping[str, Any]` |
 
 ### <kbd>method</kbd> `__init__`
 

@@ -92,7 +92,9 @@ refreshes through `DEEPAGENTS_CODE_NO_UPDATE_CHECK`,
 With `harness.settings.interfaces.terminal` present, the adapter writes an
 executable launcher to
 `<artifact root>/.fabric/deepagents-code/runtimes/<runtime-id>/interfaces/terminal`.
-In an OpenShell sandbox, a person runs it with:
+The runtime handle reports that path as `interfaces.terminal.launcher`, from
+`fabric-agent-ctl start` or, later, `fabric-agent-ctl status --agent NAME
+--runtime-id ID`. In an OpenShell sandbox, a person runs it with:
 
 ```bash
 openshell sandbox exec -n SANDBOX --tty -- <launcher path>

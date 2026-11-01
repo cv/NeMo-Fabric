@@ -177,6 +177,15 @@ native boundary. Most Python callers use their `runtime_id` and
 `invocation_id` through `Runtime` and `RunResult` rather than manipulating the
 handles directly.
 
+`RuntimeHandle.interfaces` reports the native interfaces a runtime serves,
+keyed by interface name, and is empty when it serves none. Each entry has a
+`kind` (`http` or `terminal`), a loopback `address` and `port` or a
+terminal `launcher`, and a `credential_file` when the interface has a
+credential. Paths are environment-local, and the handle never contains a
+credential value. Which interfaces an adapter can serve is declared in its
+descriptor's `interfaces`; consumers enable them under
+`harness.settings.interfaces`.
+
 A runtime is a logical execution boundary, not necessarily an operating-system
 process. An adapter may use an in-process SDK, a process, or shared service
 infrastructure while preserving isolated state for each NeMo Fabric runtime.
@@ -336,7 +345,7 @@ Service checks evaluate earlier levels in order under the same three-second defa
 `Fabric.check()` and `fabric-agent-ctl check`. The executable ships with
 `nemo-fabric-runtime` and follows the SDK package release.
 
-`fabric-agent-ctl serve` starts one runtime server per sandbox. The `start`, `invoke`, and `stop` commands call the existing `Fabric.start_runtime()`, `Runtime.invoke()`, and `Runtime.stop()` methods. Start accepts `FabricConfig` and returns the SDK `RuntimeHandle` mapping. Invoke accepts a full `RunRequest` through `--request` or any JSON SDK input through `--input`, and returns the SDK `RunResult` mapping. Stop returns JSON null. These payloads occupy the response envelope's `result` field; command diagnostics remain separate. Targeted commands require the returned runtime ID and exact agent name. The caller waits for the private socket before start. Caller-side preflight uses `Fabric.plan()` and `Fabric.doctor()`; startup validates configuration against installed descriptors.
+`fabric-agent-ctl serve` starts one runtime server per sandbox. The `start`, `invoke`, and `stop` commands call the existing `Fabric.start_runtime()`, `Runtime.invoke()`, and `Runtime.stop()` methods. Start accepts `FabricConfig` and returns the SDK `RuntimeHandle` mapping. Invoke accepts a full `RunRequest` through `--request` or any JSON SDK input through `--input`, and returns the SDK `RunResult` mapping. Stop returns JSON null. The read-only `status --agent NAME --runtime-id ID` command returns the running runtime's current `RuntimeHandle` mapping, including its `interfaces`, with `changed: false`, so a later process can rediscover interfaces without invoking anything. These payloads occupy the response envelope's `result` field; command diagnostics remain separate. Targeted commands require the returned runtime ID and exact agent name. The caller waits for the private socket before start. Caller-side preflight uses `Fabric.plan()` and `Fabric.doctor()`; startup validates configuration against installed descriptors.
 
 One sandbox can own multiple runtimes, each addressed by its returned runtime ID. Invoke and stop operations are independent across IDs; stopping one runtime leaves the others usable, and another runtime can be started after a stop. An uncertain start blocks further starts because the server cannot safely determine whether an unaddressable runtime exists. Ordinary SDK stop does not confirm descendant cleanup, so the runtime server retains `fabric.unclean` after runtime use and reports `cleanup_unconfirmed` if previous sandbox process cleanup cannot be confirmed. Refer to the [runtime server command guide](https://github.com/NVIDIA/NeMo-Fabric/blob/main/sdk/python/nemo-fabric-runtime/src/nemo_fabric/runtime_server/README.md).
 

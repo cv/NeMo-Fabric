@@ -39,6 +39,7 @@ pub enum SchemaName {
     ErrorInfo,
     FabricEvent,
     RuntimeResourceSnapshot,
+    InterfaceSettings,
 }
 ```
 
@@ -214,6 +215,12 @@ NeMo Fabric lifecycle event schema.
 
 Runtime resource snapshot schema.
 
+### `InterfaceSettings`
+
+<pre className="rust-signature"><code dangerouslySetInnerHTML={{"__html": "InterfaceSettings"}} /></pre>
+
+Shared `harness.settings.interfaces` field definitions for descriptors.
+
 ## Implementations
 
 ### `impl SchemaName`
@@ -222,7 +229,7 @@ Runtime resource snapshot schema.
 
 #### `ALL`
 
-<pre className="rust-signature"><code dangerouslySetInnerHTML={{"__html": "pub const ALL: [Self; <a href=\"https://doc.rust-lang.org/1.94.0/std/primitive.array.html\">28</a>]"}} /></pre>
+<pre className="rust-signature"><code dangerouslySetInnerHTML={{"__html": "pub const ALL: [Self; <a href=\"https://doc.rust-lang.org/1.94.0/std/primitive.array.html\">29</a>]"}} /></pre>
 
 All public schemas in stable output order.
 

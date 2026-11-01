@@ -142,6 +142,10 @@ serves it when `harness.settings.interfaces.dashboard` is present:
   directory, or `<base_dir>/artifacts` when it is unset. `stop` removes the
   token before it stops the Gateway; if the adapter host is killed, the file
   can remain.
+- The runtime handle reports the dashboard as `interfaces.dashboard`, with its
+  `port` and the token's `credential_file` path, never the token.
+  `fabric-agent-ctl start` returns the handle, and
+  `fabric-agent-ctl status --agent NAME --runtime-id ID` returns it again later.
 - Open `http://127.0.0.1:<port>/#token=<token>` through a forward to that
   port to sign in. The Control UI removes the token from the address bar.
 - The Gateway accepts `http://127.0.0.1:<port>`, `http://localhost:<port>`,

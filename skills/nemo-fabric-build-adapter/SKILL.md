@@ -68,6 +68,15 @@ translation:
   that declare either name through `extension_schemas.model` remain compatible
   and receive it in `AgentModelConfig.extensions`.
 - Declare runtime requirements and telemetry outputs without secret values.
+- To serve native interfaces with a managed runtime, declare each one in the
+  descriptor's top-level `interfaces` with its `kind` (`http` or
+  `terminal`), and accept it under `settings_schema.properties.interfaces`
+  using the adapter contract's `interface-settings` fragment: copy its `$defs`
+  unchanged, refer to them with `$ref`, and close every interface object with
+  `additionalProperties: false`. Return the started interfaces from `start`
+  as `{"interfaces": {...}}` in the `RuntimeHandle` shape: loopback
+  `address` and `port` or a `launcher` path, and the `credential_file`
+  path, never the credential.
 - Leave optional capability flags false unless the installed NeMo Fabric runtime
   exposes and tests that adapter operation. Set `capabilities.streaming` only
   when the adapter implements native OpenAI Chat Completions streaming through

@@ -65,6 +65,7 @@ The following table lists the `Runtime` members for driving a stateful runtime.
 | `supports_openai_streaming` | No | `True` when the selected descriptor declares `capabilities.streaming` for native OpenAI Chat Completions chunks. |
 | `supports_streaming` | No | `True` when NeMo Relay ATOF streaming was enabled at runtime startup. |
 | `runtime_id` | No | Opaque identifier for this runtime lifecycle. |
+| `handle` | No | `RuntimeHandle` snapshot. `handle.interfaces` maps each native interface the runtime serves to its `kind` (`http` or `terminal`), loopback `address` and `port` or terminal `launcher`, and `credential_file` when it has a credential; never a credential value. In a sandbox, `fabric-agent-ctl status --agent NAME --runtime-id ID` returns the same handle read-only. |
 | `messages` / `invocations` | No | Copied harness history and per-turn IDs. |
 
 Always use a runtime as an async context manager so cleanup runs on exit.
