@@ -1581,6 +1581,37 @@ def test_runtime_handle_distinguishes_contract_and_extension_fields():
     assert handle.extra_fields == {"future_handle_field": "value"}
 
 
+def test_runtime_handle_reports_its_interfaces():
+    interfaces = {
+        "dashboard": {
+            "kind": "http",
+            "address": "127.0.0.1",
+            "port": 18789,
+            "credential_file": "/sandbox/artifacts/dashboard.token",
+        },
+        "terminal": {"kind": "terminal", "launcher": "/sandbox/artifacts/terminal"},
+    }
+
+    handle = RuntimeHandle.from_mapping({**_runtime(), "interfaces": interfaces})
+
+    assert handle.interfaces == interfaces
+    assert handle.extra_fields == {}
+    assert handle.to_mapping()["interfaces"] == interfaces
+
+
+def test_runtime_handle_without_interfaces_reports_none():
+    handle = RuntimeHandle.from_mapping(_runtime())
+
+    assert handle.interfaces == {}
+    assert "interfaces" not in handle.to_mapping()
+
+
+@pytest.mark.parametrize("interfaces", ([], {"dashboard": "127.0.0.1:18789"}))
+def test_runtime_handle_rejects_malformed_interfaces(interfaces: object):
+    with pytest.raises(FabricConfigError, match="interface"):
+        RuntimeHandle.from_mapping({**_runtime(), "interfaces": interfaces})
+
+
 @pytest.mark.parametrize(
     "field",
     (

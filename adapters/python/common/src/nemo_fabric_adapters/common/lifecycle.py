@@ -44,7 +44,12 @@ class AdapterRuntime(Protocol):
     """One adapter-owned runtime living for the complete host lifetime."""
 
     async def start(self, payload: dict[str, Any]) -> dict[str, Any] | None:
-        """Initialize resources and optionally return service information."""
+        """Initialize resources and optionally return start output.
+
+        A service host returns its service information. A managed runtime may
+        return ``{"interfaces": {...}}``, which Fabric reports in its
+        ``RuntimeHandle``.
+        """
 
     async def invoke(
         self,

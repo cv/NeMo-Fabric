@@ -11,7 +11,9 @@ export {
   type AdapterRuntime,
   type AdapterRuntimeFactory,
   type AdapterStartInput,
+  type AdapterStartOutput,
   type LifecycleHostOptions,
+  type RuntimeInterface,
 } from "./lifecycle.js";
 
 export { insecureHttpModelHosts, modelEndpointAllowed } from "./model-endpoint.js";

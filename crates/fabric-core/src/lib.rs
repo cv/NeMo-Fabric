@@ -60,7 +60,7 @@ pub use runtime::{
     OpenAiChatCompletionChunkChoice, OpenAiChatCompletionChunkDelta,
     OpenAiChatCompletionChunkObject, OpenAiStreamHost, OpenAiStreamInvocation, OpenAiStreamProfile,
     OpenAiStreamProtocolVersion, OpenAiStreamRecord, OpenAiStreamSink, OpenAiStreamTransport,
-    RunRequest, RunResult, RunStatus, RunUsage, RuntimeContext, RuntimeHandle,
+    RunRequest, RunResult, RunStatus, RunUsage, RuntimeContext, RuntimeHandle, RuntimeInterface,
     RuntimeTelemetryContext, ServiceHandle, ServiceOwnership, ServiceReference, TelemetryRef,
     attach_environment, attach_service, invoke_openai_stream, invoke_runtime, prepare_environment,
     prepare_service, release_environment, release_service, run_plan, runtime_resource_snapshot,

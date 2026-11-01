@@ -33,8 +33,22 @@ export interface AdapterStartInput {
   telemetryPlan?: JsonObject;
 }
 
+/**
+ * Where to reach one native interface the runtime serves. Paths are
+ * environment-local; `credential_file` names the file holding a credential,
+ * never the credential itself.
+ */
+export type RuntimeInterface =
+  | { kind: "http"; address: string; port: number; credential_file?: string }
+  | { kind: "terminal"; launcher: string; credential_file?: string };
+
+/** What a runtime may return from `start`; Fabric reports `interfaces` in the runtime handle. */
+export interface AdapterStartOutput {
+  interfaces?: Record<string, RuntimeInterface>;
+}
+
 export interface AdapterRuntime {
-  start(input: AdapterStartInput): Promise<void>;
+  start(input: AdapterStartInput): Promise<void | AdapterStartOutput>;
   invoke(request: AgentRunRequest, context: RuntimeContext): Promise<AgentRunResult>;
   stop(): Promise<void>;
   check?(level: CheckLevel): Promise<AdapterCheckResult>;
@@ -285,10 +299,11 @@ async function dispatch(
     const disabled = isRecord(provenance) && provenance.enabled === false;
     state.passive = disabled ? undefined : new Map();
     let candidate: AdapterRuntime | undefined;
+    let output: void | AdapterStartOutput;
     try {
       candidate = await callAdapter("start", factory);
       const active = candidate;
-      await withSoftwareObservations(state.passive, () => callAdapter("start", () => active.start(decodeStart(request.payload))));
+      output = await withSoftwareObservations(state.passive, () => callAdapter("start", () => active.start(decodeStart(request.payload))));
     } catch (error) {
       if (candidate !== undefined) {
         await stopQuietly(candidate, diagnostics);
@@ -316,7 +331,7 @@ async function dispatch(
         throw new LifecycleError("lifecycle_health_unavailable", "Adapter health channel could not be started");
       }
     }
-    return success("start");
+    return success("start", output ?? null);
   }
 
   if (state.runtime === undefined || state.runtimeId === undefined) {

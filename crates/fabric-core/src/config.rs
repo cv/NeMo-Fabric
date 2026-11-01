@@ -332,6 +332,16 @@ pub enum InterfaceKind {
     Terminal,
 }
 
+impl InterfaceKind {
+    /// Stable wire name for this interface kind.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::Terminal => "terminal",
+        }
+    }
+}
+
 /// Native interface an adapter can serve, enabled under
 /// `harness.settings.interfaces.<name>`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]

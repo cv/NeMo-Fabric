@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io::{BufRead, BufReader, ErrorKind, Write};
+use std::net::IpAddr;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -25,10 +26,10 @@ use crate::agent_execution::{
 };
 use crate::config::{
     AdapterKind, AgentConfig, CapabilityPlan, CapabilityTarget, ControlLocation,
-    EnvironmentOwnership, RunPlan, TelemetryPlan, validate_adapter_config_compatibility,
-    validate_agent_config_extensions, validate_agent_run_request_extensions,
-    validate_agent_run_result_extensions, validate_config, validate_harness_settings,
-    validate_tool_definitions, validate_workflow,
+    EnvironmentOwnership, InterfaceKind, RunPlan, TelemetryPlan,
+    validate_adapter_config_compatibility, validate_agent_config_extensions,
+    validate_agent_run_request_extensions, validate_agent_run_result_extensions, validate_config,
+    validate_harness_settings, validate_tool_definitions, validate_workflow,
 };
 use crate::environment::resolve_environment_provider;
 use crate::error::{FabricError, Result};
@@ -395,6 +396,50 @@ pub struct RuntimeHandle {
     pub service_id: Option<String>,
     /// Prepared environment.
     pub environment: EnvironmentHandle,
+    /// Native interfaces this runtime serves, keyed by interface name. Absent
+    /// means none. Never contains credential values.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub interfaces: BTreeMap<String, RuntimeInterface>,
+}
+
+/// Where to reach one native interface that a runtime serves.
+///
+/// Paths are environment-local. A handle never contains a credential value:
+/// `credential_file` names the owner-only file that holds it, when the
+/// interface has one.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
+pub enum RuntimeInterface {
+    /// HTTP interface listening on a loopback address.
+    Http {
+        /// Loopback IP address the interface listens on.
+        address: IpAddr,
+        /// TCP port the interface listens on.
+        #[schemars(range(min = 1))]
+        port: u16,
+        /// File holding the interface's credential, when it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential_file: Option<PathBuf>,
+    },
+    /// Terminal interface that a person opens by running its launcher in the
+    /// environment, for example with `openshell sandbox exec --tty`.
+    Terminal {
+        /// Executable that opens the terminal UI with the runtime's configuration.
+        launcher: PathBuf,
+        /// File holding the interface's credential, when it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        credential_file: Option<PathBuf>,
+    },
+}
+
+impl RuntimeInterface {
+    /// Kind of this interface.
+    pub fn kind(&self) -> InterfaceKind {
+        match self {
+            Self::Http { .. } => InterfaceKind::Http,
+            Self::Terminal { .. } => InterfaceKind::Terminal,
+        }
+    }
 }
 
 /// Ownership of a service exposed through NeMo Fabric.
@@ -1119,6 +1164,7 @@ fn start_service(
         adapter_id: adapter_id(plan),
         service_id: None,
         environment,
+        interfaces: BTreeMap::new(),
     };
     let invocation = InvocationHandle {
         invocation_id: new_id("service-start"),
@@ -1889,7 +1935,7 @@ fn start_local_runtime(
         .map(|(service_id, _, _)| service_id.clone());
     let runtime_id = new_id("runtime");
     let runtime_binding = runtime_binding(&runtime_id, service_id.as_ref(), plan, &environment)?;
-    let runtime = RuntimeHandle {
+    let mut runtime = RuntimeHandle {
         runtime_id,
         runtime_binding,
         agent_name: plan.agent_name.clone(),
@@ -1898,6 +1944,7 @@ fn start_local_runtime(
         adapter_id: adapter_id(plan),
         service_id,
         environment,
+        interfaces: BTreeMap::new(),
     };
     let start_invocation = InvocationHandle {
         invocation_id: new_id("runtime-start"),
@@ -1927,7 +1974,7 @@ fn start_local_runtime(
     let environment_env = start.runtime_context.environment.env.clone();
     let request = AdapterLifecycleRequest::new(AdapterLifecycleRequestKind::Start(Box::new(start)));
     let started_at = SystemTime::now();
-    let levels = plan
+    let levels: Vec<crate::check::CheckLevel> = plan
         .capabilities
         .metadata
         .get("health_checks")
@@ -1939,7 +1986,7 @@ fn start_local_runtime(
                 .collect()
         })
         .unwrap_or_default();
-    crate::check::register(&runtime, levels);
+    crate::check::register(&runtime, levels.clone());
     let mut host = match spawn_local_host(plan, &runtime, artifacts, relay_config, environment_env)
     {
         Ok(host) => host,
@@ -1949,16 +1996,36 @@ fn start_local_runtime(
         }
     };
     host.service_execution = service_execution;
-    if let Err(error) = exchange_lifecycle_message(
+    let interfaces = exchange_lifecycle_message(
         &mut host,
         &runtime.runtime_id,
         &request,
         LOCAL_HOST_START_TIMEOUT,
-    ) {
-        crate::check::invalidate_runtime(&runtime);
-        let _ = terminate_local_host(&mut host);
-        let _ = remove_local_host_files(&host);
-        return Err(error);
+    )
+    .and_then(|output| {
+        runtime_interfaces(plan, output).map_err(|message| {
+            lifecycle_error(
+                AdapterLifecycleOperation::Start,
+                &runtime.runtime_id,
+                "invalid_runtime_interfaces",
+                message,
+                local_host_diagnostics(&host),
+            )
+        })
+    });
+    let interfaces = match interfaces {
+        Ok(interfaces) => interfaces,
+        Err(error) => {
+            crate::check::invalidate_runtime(&runtime);
+            let _ = terminate_local_host(&mut host);
+            let _ = remove_local_host_files(&host);
+            return Err(error);
+        }
+    };
+    if !interfaces.is_empty() {
+        runtime.interfaces = interfaces;
+        // Health checks address the complete handle the caller receives.
+        crate::check::register(&runtime, levels);
     }
     local_host_processes().insert(
         runtime.runtime_id.clone(),
@@ -1966,6 +2033,69 @@ fn start_local_runtime(
     );
     local_hosts().insert(runtime.runtime_id.clone(), Arc::new(Mutex::new(host)));
     Ok(runtime)
+}
+
+/// Read the native interfaces an adapter reported from runtime `start`.
+///
+/// An adapter that returns nothing, or an object without `interfaces`, serves
+/// none. Each reported interface must be declared with the same kind in the
+/// adapter's descriptor, listen on loopback, and use rooted paths.
+fn runtime_interfaces(
+    plan: &RunPlan,
+    output: Value,
+) -> std::result::Result<BTreeMap<String, RuntimeInterface>, String> {
+    let Value::Object(mut output) = output else {
+        return Ok(BTreeMap::new());
+    };
+    let Some(interfaces) = output.remove("interfaces") else {
+        return Ok(BTreeMap::new());
+    };
+    let interfaces: BTreeMap<String, RuntimeInterface> = serde_json::from_value(interfaces)
+        .map_err(|error| format!("adapter returned invalid runtime interfaces: {error}"))?;
+    for (name, interface) in &interfaces {
+        let declared = plan
+            .adapter_descriptor
+            .as_ref()
+            .and_then(|resolved| resolved.descriptor.interfaces.get(name))
+            .ok_or_else(|| {
+                format!("adapter reported interface `{name}`, which its descriptor doesn't declare")
+            })?;
+        if declared.kind != interface.kind() {
+            return Err(format!(
+                "adapter reported interface `{name}` as {}, but its descriptor declares {}",
+                interface.kind().as_str(),
+                declared.kind.as_str()
+            ));
+        }
+        let (paths, credential_file) = match interface {
+            RuntimeInterface::Http {
+                address,
+                port,
+                credential_file,
+            } => {
+                if !address.is_loopback() || *port == 0 {
+                    return Err(format!(
+                        "adapter reported interface `{name}` outside a loopback address and port"
+                    ));
+                }
+                (None, credential_file)
+            }
+            RuntimeInterface::Terminal {
+                launcher,
+                credential_file,
+            } => (Some(launcher), credential_file),
+        };
+        if paths
+            .into_iter()
+            .chain(credential_file)
+            .any(|path| !path.has_root())
+        {
+            return Err(format!(
+                "adapter reported interface `{name}` with a relative path"
+            ));
+        }
+    }
+    Ok(interfaces)
 }
 
 fn validate_local_host(plan: &RunPlan, environment: &EnvironmentHandle) -> Result<()> {
@@ -4281,6 +4411,10 @@ mod tests {
   },
   "capabilities": {
     "service": true
+  },
+  "interfaces": {
+    "dashboard": {"kind": "http"},
+    "terminal": {"kind": "terminal"}
   }
 }"#,
         )
@@ -4376,7 +4510,9 @@ for line in sys.stdin:
             with open(os.path.join(root, "child.pid"), "w", encoding="utf-8") as stream:
                 stream.write(str(child.pid))
         service = message["payload"].get("service")
-        if service and service["operation"] in {"prepare", "attach"}:
+        if MODE.startswith("start_output:"):
+            response("start", output=json.loads(MODE.removeprefix("start_output:")))
+        elif service and service["operation"] in {"prepare", "attach"}:
             with open(service["connection_path"], "w", encoding="utf-8") as stream:
                 json.dump({"fake": "connection"}, stream)
             response("start", output={
@@ -5675,6 +5811,7 @@ for line in sys.stdin:
             adapter_id: adapter_id(&plan),
             service_id: None,
             environment,
+            interfaces: BTreeMap::new(),
         };
 
         let result = runtime_resource_snapshot(&plan, &runtime);
@@ -5739,6 +5876,73 @@ for line in sys.stdin:
         assert!(message.contains("start diagnostic"), "{message}");
 
         let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn local_host_reports_runtime_interfaces_from_adapter_start() {
+        let output = serde_json::json!({"interfaces": {
+            "dashboard": {
+                "kind": "http",
+                "address": "127.0.0.1",
+                "port": 18789,
+                "credential_file": "/sandbox/artifacts/dashboard.token",
+            },
+            "terminal": {"kind": "terminal", "launcher": "/sandbox/artifacts/terminal"},
+        }});
+        let (root, plan) = local_host_plan(&format!("start_output:{output}"));
+
+        let runtime = start_runtime(&plan).expect("start local host");
+        let handle = serde_json::to_value(&runtime).expect("serialize handle");
+        invoke_runtime(&plan, &runtime, RunRequest::text("interfaces")).expect("invoke");
+        stop_runtime(&plan, &runtime).expect("stop local host");
+
+        assert_eq!(handle["interfaces"], output["interfaces"]);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn local_host_without_interfaces_omits_them_from_the_handle() {
+        let (root, plan) = local_host_plan("start_output:{}");
+
+        let runtime = start_runtime(&plan).expect("start local host");
+        let handle = serde_json::to_value(&runtime).expect("serialize handle");
+        stop_runtime(&plan, &runtime).expect("stop local host");
+
+        assert!(runtime.interfaces.is_empty());
+        assert!(handle.get("interfaces").is_none());
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn local_host_rejects_invalid_runtime_interfaces() {
+        for interfaces in [
+            serde_json::json!({"console": {"kind": "terminal", "launcher": "/sandbox/console"}}),
+            serde_json::json!({"terminal": {"kind": "http", "address": "127.0.0.1", "port": 80}}),
+            serde_json::json!({"dashboard": {"kind": "http", "address": "0.0.0.0", "port": 80}}),
+            serde_json::json!({"dashboard": {"kind": "http", "address": "127.0.0.1", "port": 0}}),
+            serde_json::json!({"dashboard": {
+                "kind": "http", "address": "127.0.0.1", "port": 80, "token": "secret",
+            }}),
+            serde_json::json!({"terminal": {"kind": "terminal", "launcher": "interfaces/terminal"}}),
+            serde_json::json!({"dashboard": {
+                "kind": "http", "address": "127.0.0.1", "port": 80, "credential_file": "token",
+            }}),
+        ] {
+            let output = serde_json::json!({"interfaces": interfaces});
+            let (root, plan) = local_host_plan(&format!("start_output:{output}"));
+
+            let error = start_runtime(&plan).expect_err("invalid interfaces must fail start");
+
+            assert!(
+                matches!(
+                    &error,
+                    FabricError::AdapterLifecycleOperation { code, .. }
+                        if code == "invalid_runtime_interfaces"
+                ),
+                "{interfaces}: {error}"
+            );
+            let _ = fs::remove_dir_all(root);
+        }
     }
 
     #[test]

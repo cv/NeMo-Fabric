@@ -103,6 +103,23 @@ test("serves two ordered invocations and stops one runtime", async () => {
   assert.equal(responses[2].outcome.output.output.response, "two");
 });
 
+test("returns the interfaces an adapter reports from start", async () => {
+  const interfaces = { terminal: { kind: "terminal", launcher: "/sandbox/artifacts/terminal" } };
+  const runtime = {
+    async start() {
+      return { interfaces };
+    },
+    async invoke() {
+      return { status: "succeeded", output: null };
+    },
+    async stop() {},
+  };
+
+  const [started] = await exchange(() => runtime, [start("runtime-1"), stop("runtime-1")]);
+
+  assert.deepEqual(started.outcome, { status: "succeeded", output: { interfaces } });
+});
+
 test("rejects invalid typed configuration before adapter startup", async () => {
   let started = false;
   let stopped = false;

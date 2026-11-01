@@ -403,6 +403,7 @@ impl RuntimeAdapter for OpenShellRuntimeAdapter {
             adapter_id: task.adapter_id,
             service_id: None,
             environment,
+            interfaces: task.interfaces,
         };
         {
             let mut bindings = BINDINGS.lock().unwrap_or_else(|error| error.into_inner());
@@ -936,6 +937,7 @@ mod tests {
             adapter_id: None,
             service_id: None,
             environment: rebound,
+            interfaces: BTreeMap::new(),
         };
         assert!(claim(&runtime, false).is_err());
         assert_eq!(
@@ -962,6 +964,7 @@ mod tests {
             adapter_id: None,
             service_id: None,
             environment: environment.clone(),
+            interfaces: BTreeMap::new(),
         };
 
         assert_eq!(

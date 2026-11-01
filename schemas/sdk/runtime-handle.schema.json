@@ -114,6 +114,72 @@
           "type": "string"
         }
       ]
+    },
+    "RuntimeInterface": {
+      "description": "Where to reach one native interface that a runtime serves.\n\nPaths are environment-local. A handle never contains a credential value:\n`credential_file` names the owner-only file that holds it, when the\ninterface has one.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "HTTP interface listening on a loopback address.",
+          "properties": {
+            "address": {
+              "description": "Loopback IP address the interface listens on.",
+              "format": "ip",
+              "type": "string"
+            },
+            "credential_file": {
+              "description": "File holding the interface's credential, when it has one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "http",
+              "type": "string"
+            },
+            "port": {
+              "description": "TCP port the interface listens on.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "address",
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Terminal interface that a person opens by running its launcher in the\nenvironment, for example with `openshell sandbox exec --tty`.",
+          "properties": {
+            "credential_file": {
+              "description": "File holding the interface's credential, when it has one.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "terminal",
+              "type": "string"
+            },
+            "launcher": {
+              "description": "Executable that opens the terminal UI with the runtime's configuration.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "launcher"
+          ],
+          "type": "object"
+        }
+      ]
     }
   },
   "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -141,6 +207,13 @@
     "harness": {
       "description": "Stable machine-readable harness identifier.",
       "type": "string"
+    },
+    "interfaces": {
+      "additionalProperties": {
+        "$ref": "#/$defs/RuntimeInterface"
+      },
+      "description": "Native interfaces this runtime serves, keyed by interface name. Absent\nmeans none. Never contains credential values.",
+      "type": "object"
     },
     "runtime_binding": {
       "description": "NeMo Fabric-owned opaque binding for this runtime handle.",

@@ -1802,6 +1802,11 @@ class RuntimeHandle(FabricMapping):
         adapter_id: Optional NeMo Fabric adapter identifier.
         service_id: Optional service used by this runtime.
         environment: Prepared environment snapshot.
+        interfaces: Native interfaces the runtime serves, keyed by interface
+            name: each one's ``kind``, its loopback ``address`` and ``port``
+            or terminal ``launcher``, and the ``credential_file`` that holds
+            its credential when it has one. Empty when it serves none. Paths
+            are environment-local, and credential values never appear.
     """
 
     runtime_id: str
@@ -1812,6 +1817,7 @@ class RuntimeHandle(FabricMapping):
     adapter_id: str | None
     service_id: str | None
     environment: Mapping[str, Any]
+    interfaces: Mapping[str, Any]
     _fields = frozenset(
         {
             "runtime_id",
@@ -1822,9 +1828,11 @@ class RuntimeHandle(FabricMapping):
             "adapter_id",
             "service_id",
             "environment",
+            "interfaces",
         }
     )
-    _json_fields = frozenset({"environment"})
+    _json_fields = frozenset({"environment", "interfaces"})
+    _omit_if_empty = frozenset({"interfaces"})
 
     @classmethod
     def _normalize(cls, data: dict[str, Any]) -> dict[str, Any]:
@@ -1843,6 +1851,12 @@ class RuntimeHandle(FabricMapping):
         else:
             data["service_id"] = None
         data["environment"] = _mapping(data.get("environment"), "environment")
+        data["interfaces"] = {
+            name: _mapping(interface, f"interface {name}")
+            for name, interface in _mapping(
+                data.get("interfaces", {}), "interfaces"
+            ).items()
+        }
         return data
 
 
