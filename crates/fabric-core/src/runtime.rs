@@ -476,6 +476,11 @@ pub struct RuntimeContext {
     /// Present on every invocation, shortly before Fabric's own invocation timeout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub deadline_millis: Option<u64>,
+    /// Absolute folder for the adapter's native state, present when
+    /// `runtime.keep_state` is set. Every runtime of the agent gets the same
+    /// folder, and Fabric lets only one running runtime use it at a time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_dir: Option<PathBuf>,
 }
 
 /// Runtime telemetry config passed to adapters.
@@ -892,6 +897,8 @@ struct LocalAdapterHost {
     relay_config: Option<RelayRuntimeConfig>,
     // Adapter startup values stay in memory, never in a serialized handle or plan.
     environment_env: BTreeMap<String, String>,
+    // Held while the host runs; dropping the host releases the agent's state folder.
+    _state_lock: Option<File>,
 }
 
 struct LocalServiceRecord {
@@ -2650,6 +2657,7 @@ fn spawn_local_host(
     relay_config: Option<RelayRuntimeConfig>,
     environment_env: BTreeMap<String, String>,
 ) -> Result<LocalAdapterHost> {
+    let state_lock = lock_agent_state(plan, &artifacts)?;
     let runtime_dir = local_host_directory(&runtime.runtime_id);
     std::fs::create_dir_all(&runtime_dir).map_err(|source| FabricError::Write {
         path: runtime_dir.clone(),
@@ -2779,6 +2787,7 @@ fn spawn_local_host(
         artifacts,
         relay_config,
         environment_env,
+        _state_lock: state_lock,
     })
 }
 
@@ -3479,7 +3488,64 @@ fn adapter_runtime_context(
         artifacts: artifacts.clone(),
         telemetry: runtime_telemetry_context(plan, relay_config),
         deadline_millis: None,
+        state_dir: agent_state_dir(plan, artifacts)?,
     })
+}
+
+/// The folder that keeps an agent's native state across its runtimes when
+/// `runtime.keep_state` is set: `<artifact root>/.fabric/state/<adapter id>/<agent name>`.
+/// The adapter ID keeps another harness from reading the state if the agent's
+/// adapter changes.
+fn agent_state_dir(plan: &RunPlan, artifacts: &ArtifactManifest) -> Result<Option<PathBuf>> {
+    if !plan.config.runtime.keep_state {
+        return Ok(None);
+    }
+    let Some(root) = artifacts.root.as_ref() else {
+        return Err(FabricError::InvalidConfig {
+            field: "runtime.keep_state".to_string(),
+            reason: "requires an artifact directory, from runtime.artifacts or the environment"
+                .to_string(),
+        });
+    };
+    let adapter = adapter_id(plan).unwrap_or_else(|| harness(plan));
+    absolute_path(
+        root.join(".fabric")
+            .join("state")
+            .join(adapter)
+            .join(&plan.agent_name),
+    )
+    .map(Some)
+}
+
+/// Takes the agent's state folder for one runtime. The lock lasts while the
+/// returned file is open, and the operating system releases it when this
+/// process exits, so a crashed runtime leaves no stale lock behind.
+fn lock_agent_state(plan: &RunPlan, artifacts: &ArtifactManifest) -> Result<Option<File>> {
+    let Some(state_dir) = agent_state_dir(plan, artifacts)? else {
+        return Ok(None);
+    };
+    std::fs::create_dir_all(&state_dir).map_err(|source| FabricError::Write {
+        path: state_dir.clone(),
+        source,
+    })?;
+    let lock_path = state_dir.join(".fabric-state.lock");
+    let file = File::options()
+        .create(true)
+        .write(true)
+        .truncate(false)
+        .open(&lock_path)
+        .map_err(|source| FabricError::Write {
+            path: lock_path.clone(),
+            source,
+        })?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(std::fs::TryLockError::WouldBlock) => Err(FabricError::StateInUse { path: state_dir }),
+        Err(std::fs::TryLockError::Error(source)) => Err(FabricError::Write {
+            path: lock_path,
+            source,
+        }),
+    }
 }
 
 fn resolve_named_environment(plan: &RunPlan, env: &mut BTreeMap<String, String>) -> Result<()> {
@@ -4453,6 +4519,7 @@ for line in sys.stdin:
             "normalized_env": os.environ.get("FABRIC_NORMALIZED_ENV"),
             "context_env": invocation["runtime_context"]["environment"].get("env", {}),
             "deadline_millis": invocation["runtime_context"].get("deadline_millis"),
+            "state_dir": invocation["runtime_context"].get("state_dir"),
         }
         if MODE in {"adapter_reported_failure", "blank_error_code"}:
             result = {
@@ -4816,6 +4883,123 @@ for line in sys.stdin:
         assert_eq!(first_stop[0].metadata["already_stopped"], false);
         assert_eq!(second_stop[0].metadata["already_stopped"], true);
 
+        let _ = fs::remove_dir_all(root);
+    }
+
+    fn local_host_plan_keeping_state(agent_name: &str) -> (PathBuf, RunPlan) {
+        let (root, plan) = local_host_plan("success");
+        let descriptor_path = root.join("adapters/local-host/local-host.fabric-adapter.json");
+        let mut descriptor: Value = serde_json::from_str(
+            &fs::read_to_string(&descriptor_path).expect("read adapter descriptor"),
+        )
+        .expect("parse adapter descriptor");
+        descriptor["config"] = serde_json::json!({"accepts": ["runtime.keep_state"]});
+        fs::write(&descriptor_path, descriptor.to_string()).expect("write adapter descriptor");
+        let mut config = plan.config;
+        config.metadata.name = agent_name.to_string();
+        config.runtime.keep_state = true;
+        let plan = resolve_run_plan_from_config(config, ResolveContext::new(&root))
+            .expect("resolve keep_state plan");
+        (root, plan)
+    }
+
+    #[test]
+    fn keep_state_gives_every_runtime_of_an_agent_the_same_state_folder() {
+        let (root, plan) = local_host_plan_keeping_state("assistant");
+
+        let first = start_runtime(&plan).expect("start first runtime");
+        let first_output = invoke_runtime(&plan, &first, RunRequest::text("one"))
+            .expect("first invocation")
+            .output;
+        stop_runtime(&plan, &first).expect("stop first runtime");
+        let second = start_runtime(&plan).expect("start second runtime");
+        let second_output = invoke_runtime(&plan, &second, RunRequest::text("two"))
+            .expect("second invocation")
+            .output;
+        stop_runtime(&plan, &second).expect("stop second runtime");
+
+        let expected = root.join("artifacts/.fabric/state/acme.fabric.local-host/assistant");
+        assert_ne!(first.runtime_id, second.runtime_id);
+        for output in [&first_output, &second_output] {
+            let state_dir = output["state_dir"]
+                .as_str()
+                .expect("state_dir in runtime context");
+            assert!(Path::new(state_dir).is_absolute(), "{state_dir}");
+            assert_eq!(Path::new(state_dir), expected);
+        }
+        assert!(expected.is_dir());
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keep_state_refuses_a_second_runtime_while_another_holds_the_state_folder() {
+        let (root, plan) = local_host_plan_keeping_state("assistant");
+
+        let first = start_runtime(&plan).expect("start first runtime");
+        let error = start_runtime(&plan).expect_err("a second runtime must not share the folder");
+        assert!(matches!(error, FabricError::StateInUse { .. }), "{error}");
+        stop_runtime(&plan, &first).expect("stop first runtime");
+        let third = start_runtime(&plan).expect("start once the first runtime stopped");
+        stop_runtime(&plan, &third).expect("stop third runtime");
+
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn runtimes_without_keep_state_get_no_state_folder() {
+        let (root, plan) = local_host_plan("success");
+
+        let runtime = start_runtime(&plan).expect("start local host");
+        let output = invoke_runtime(&plan, &runtime, RunRequest::text("plain"))
+            .expect("invocation")
+            .output;
+        stop_runtime(&plan, &runtime).expect("stop");
+
+        assert_eq!(output["state_dir"], Value::Null);
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keep_state_is_rejected_for_an_adapter_that_does_not_accept_it() {
+        let (root, plan) = local_host_plan("success");
+        let mut config = plan.config;
+        config.runtime.keep_state = true;
+
+        let error = resolve_run_plan_from_config(config, ResolveContext::new(&root))
+            .expect_err("the adapter does not accept runtime.keep_state");
+
+        assert!(error.to_string().contains("runtime.keep_state"), "{error}");
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keep_state_rejects_an_agent_name_that_is_not_one_path_component() {
+        let (root, plan) = local_host_plan_keeping_state("assistant");
+        for name in ["../escape", "a/b", "a\\b", ".", ".."] {
+            let mut config = plan.config.clone();
+            config.metadata.name = name.to_string();
+            let error = resolve_run_plan_from_config(config, ResolveContext::new(&root))
+                .expect_err("the name must be usable as a folder name");
+            assert!(
+                error.to_string().contains("metadata.name"),
+                "{name}: {error}"
+            );
+        }
+        let _ = fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn keep_state_fails_start_without_an_artifact_directory() {
+        let (root, plan) = local_host_plan_keeping_state("assistant");
+        let mut config = plan.config;
+        config.runtime.artifacts = None;
+        let plan = resolve_run_plan_from_config(config, ResolveContext::new(&root))
+            .expect("resolve without artifacts");
+
+        let error = start_runtime(&plan).expect_err("the state folder needs an artifact directory");
+
+        assert!(error.to_string().contains("runtime.keep_state"), "{error}");
         let _ = fs::remove_dir_all(root);
     }
 

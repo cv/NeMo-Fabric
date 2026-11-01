@@ -201,6 +201,7 @@ class RuntimeConfig(FabricBaseModel):
         allow_inf_nan=False,
     )
     max_turns: int | None = Field(default=None, gt=0, le=(1 << 32) - 1)
+    keep_state: bool | None = Field(default=None, strict=True)
 
 
 class EnvironmentConfig(FabricBaseModel):

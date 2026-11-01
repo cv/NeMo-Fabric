@@ -812,6 +812,7 @@
             "models.max_tokens",
             "instructions.system",
             "runtime.max_turns",
+            "runtime.keep_state",
             "tools.enabled",
             "tools.blocked",
             "mcp",
@@ -849,7 +850,7 @@
               "properties": {
                 "api": {
                   "additionalProperties": false,
-                  "description": "Hermes's API server, run by a gateway child. After both interfaces start, the adapter writes its bearer token to <artifact root>/.fabric/hermes/runtimes/<runtime-id>/interfaces/api.token.",
+                  "description": "Hermes's API server, run by a gateway child. After both interfaces start, the adapter writes its bearer token to interfaces/api.token in the Hermes home: <artifact root>/.fabric/hermes/runtimes/<runtime-id>, or the agent's state folder with runtime.keep_state.",
                   "properties": {
                     "enabled": {
                       "default": true,
@@ -973,7 +974,7 @@
         "name": "nemo-fabric-adapters-hermes",
         "version": "0.7.0"
       },
-      "sha256": "56873a683ca1e3ae4f145b863fbb623594879213df3080671bc5133672d2c49d",
+      "sha256": "d8201116e065881ce64a5e0c8c269b4f42f4a18e36276950f07c02af77562727",
       "source": "adapters/python/hermes/hermes.fabric-adapter.json"
     },
     "nvidia.fabric.kilo": {

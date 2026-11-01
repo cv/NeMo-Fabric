@@ -181,6 +181,7 @@ def test_descriptor_uses_the_typed_agent_config_contract():
         "models.max_tokens",
         "instructions.system",
         "runtime.max_turns",
+        "runtime.keep_state",
         "tools.enabled",
         "tools.blocked",
         "mcp",
@@ -1220,6 +1221,66 @@ async def test_runtime_start_overrides_inherited_terminal_environment(
 
     with pytest.raises(RuntimeError, match="stop after environment setup"):
         await adapter.HermesRuntime().start(payload)
+
+
+async def _hermes_home_chosen_at_start(
+    monkeypatch, tmp_path: Path, runtime_id: str, state_dir: Path | None
+) -> Path:
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    homes: list[Path] = []
+
+    def stop_after_choosing_the_home(_config, hermes_home, **_kwargs):
+        homes.append(Path(hermes_home))
+        raise RuntimeError("stop after choosing the home")
+
+    monkeypatch.setattr(
+        configuration, "write_hermes_config", stop_after_choosing_the_home
+    )
+    context = _runtime_context(
+        runtime_id=runtime_id,
+        workspace=str(tmp_path),
+        artifact_root=str(tmp_path / "artifacts"),
+    ).to_mapping()
+    if state_dir is not None:
+        context["state_dir"] = str(state_dir)
+    payload = {"base_dir": str(tmp_path), "runtime_context": context}
+    payload["config"] = _agent_config(
+        {
+            "harness": {"settings": {}},
+            "models": {"default": {"provider": "nvidia", "model": "test-model"}},
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="stop after choosing the home"):
+        await adapter.HermesRuntime().start(payload)
+    assert os.environ["HERMES_HOME"] == str(homes[0])
+    return homes[0]
+
+
+async def test_runtime_start_keeps_hermes_home_in_the_agent_state_folder(
+    monkeypatch,
+    tmp_path: Path,
+):
+    state_dir = tmp_path / "artifacts/.fabric/state/nvidia.fabric.hermes/assistant"
+
+    homes = [
+        await _hermes_home_chosen_at_start(monkeypatch, tmp_path, runtime_id, state_dir)
+        for runtime_id in ("runtime-first", "runtime-second")
+    ]
+
+    assert homes == [state_dir, state_dir]
+
+
+async def test_runtime_start_without_a_state_folder_uses_a_home_per_runtime(
+    monkeypatch,
+    tmp_path: Path,
+):
+    home = await _hermes_home_chosen_at_start(
+        monkeypatch, tmp_path, "runtime-only", None
+    )
+
+    assert home == tmp_path / "artifacts/.fabric/hermes/runtimes/runtime-only"
 
 
 def test_artifact_root_resolves_relative_to_base_dir(tmp_path: Path):

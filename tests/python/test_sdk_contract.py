@@ -713,6 +713,27 @@ def test_max_turns_matches_rust_u32_range():
         _FabricConfigSnapshot.from_mapping(raw)
 
 
+def test_keep_state_is_a_typed_runtime_field():
+    def config(runtime: RuntimeConfig) -> FabricConfig:
+        return FabricConfig(
+            metadata=MetadataConfig(name="demo"),
+            harness=HarnessConfig(adapter_id="test.fabric.shim"),
+            runtime=runtime,
+        )
+
+    assert config(RuntimeConfig(keep_state=True)).to_mapping()["runtime"][
+        "keep_state"
+    ] is True
+    assert "keep_state" not in config(RuntimeConfig()).to_mapping()["runtime"]
+
+    raw = _plan()["config"]
+    raw["runtime"] = {"keep_state": True}
+    assert _FabricConfigSnapshot.from_mapping(raw).runtime.keep_state is True
+    raw["runtime"] = {"keep_state": "yes"}
+    with pytest.raises(FabricConfigError, match="keep_state"):
+        _FabricConfigSnapshot.from_mapping(raw)
+
+
 def test_run_plan_config_block_tools_emits_canonical_shape():
     config = _FabricConfigSnapshot.from_mapping(_plan()["config"])
 

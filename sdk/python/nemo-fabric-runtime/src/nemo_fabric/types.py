@@ -397,11 +397,20 @@ class _RuntimeConfig(_ConfigMapping):
         artifacts: Optional artifact-root path.
         timeout_seconds: Optional invocation deadline in seconds.
         max_turns: Optional harness turn limit.
+        keep_state: Whether every runtime of the agent uses one agent-named
+            state folder.
         extra_fields: Preserved extension fields not recognized by this SDK.
     """
 
     _fields = frozenset(
-        {"input_schema", "output_schema", "artifacts", "timeout_seconds", "max_turns"}
+        {
+            "input_schema",
+            "output_schema",
+            "artifacts",
+            "timeout_seconds",
+            "max_turns",
+            "keep_state",
+        }
     )
 
     def __init__(
@@ -412,6 +421,7 @@ class _RuntimeConfig(_ConfigMapping):
         artifacts: str | Path | None = None,
         timeout_seconds: float | None = None,
         max_turns: int | None = None,
+        keep_state: bool | None = None,
         extra_fields: Mapping[str, Any] | None = None,
     ) -> None:
         values: dict[str, Any] = {}
@@ -444,6 +454,10 @@ class _RuntimeConfig(_ConfigMapping):
                     "runtime max_turns must be between 1 and 4294967295"
                 )
             values["max_turns"] = max_turns
+        if keep_state is not None:
+            if not isinstance(keep_state, bool):
+                raise FabricConfigError("runtime keep_state must be a boolean")
+            values["keep_state"] = keep_state
         super().__init__(values, extra_fields=extra_fields)
 
     @classmethod
@@ -457,6 +471,7 @@ class _RuntimeConfig(_ConfigMapping):
             artifacts=data.get("artifacts"),
             timeout_seconds=data.get("timeout_seconds"),
             max_turns=data.get("max_turns"),
+            keep_state=data.get("keep_state"),
             extra_fields={
                 key: item for key, item in data.items() if key not in cls._fields
             },

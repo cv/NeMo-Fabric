@@ -372,6 +372,7 @@ Relay subfields:
 | `runtime.input_schema`, `.output_schema` | Core | Core | Core | Core | Core |
 | `runtime.artifacts`, `.timeout_seconds` | Core | Core | Core | Core | Core |
 | `runtime.max_turns` | Yes | No | Yes; maps to LangGraph supersteps | Yes; maps to Hermes iterations | Yes |
+| `runtime.keep_state` | No | No | No | Yes; the Hermes home | No |
 | `environment.provider`, `.control_location`, `.ownership` | Core | Core | Core | Core | Core |
 | `environment.workspace`, `.artifacts`, `.env`, `.env_names` | Core | Core | Core | Core | Core |
 | `environment.connection`, `.metadata`, `.settings` | Environment-provider-owned | Environment-provider-owned | Environment-provider-owned | Environment-provider-owned | Environment-provider-owned |
@@ -857,6 +858,31 @@ The adapter reuses its native state between calls. Codex maps the calls to turns
 on one live thread, Deep Agents invokes one compiled graph and checkpointer,
 Hermes Agent reuses one agent and session database, and Claude keeps one connected SDK
 client. Harness-native identifiers remain adapter-internal.
+
+### Keep Agent State Across Runtimes
+
+By default, each runtime's native state lives in its own folder, so a new
+runtime starts empty. Set `runtime.keep_state` to give every runtime of the
+agent one folder named after the agent instead:
+
+```python
+from nemo_fabric import RuntimeConfig
+
+config.runtime = RuntimeConfig(artifacts="artifacts", keep_state=True)
+```
+
+- The folder is `<artifact root>/.fabric/state/<adapter id>/<agent name>`.
+  `metadata.name` must be usable as one folder name, and the config needs an
+  artifact directory.
+- Only one runtime can use the folder at a time. `start_runtime(...)` fails
+  while another runtime of the agent runs, and succeeds again after it stops or
+  its process exits.
+- NeMo Fabric never deletes the folder. Remove it to discard the agent's state.
+- Planning fails for an adapter that doesn't declare `runtime.keep_state`.
+  Hermes Agent supports it.
+- Whether a new runtime continues an earlier conversation depends on the
+  adapter. Hermes Agent starts a new session, and the earlier sessions stay in
+  its session database.
 
 ## Runtime Resource Snapshots
 

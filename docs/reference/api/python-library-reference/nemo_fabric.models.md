@@ -520,6 +520,7 @@ The model defines the following fields:
 | `artifacts` | `str \| Path \| None` | No | `None` | — | — |
 | `timeout_seconds` | `float \| None` | No | `None` | `Gt(gt=0), _PydanticGeneralMetadata(allow_inf_nan=False)` | — |
 | `max_turns` | `int \| None` | No | `None` | `Gt(gt=0), Le(le=4294967295)` | — |
+| `keep_state` | `bool \| None` | No | `None` | `Strict(strict=True)` | — |
 
 ---
 

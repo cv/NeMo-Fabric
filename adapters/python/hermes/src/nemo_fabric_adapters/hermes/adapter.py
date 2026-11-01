@@ -109,8 +109,12 @@ class HermesRuntime:
             model_config = configuration._selected_model(agent_config)
             self._model_config = model_config
             self._runtime_id = runtime_context.runtime_id
+            # Fabric names the state folder after the agent when it keeps state
+            # across runtimes; otherwise each runtime gets its own Hermes home.
             self._hermes_home = (
-                _artifact_root(runtime_context, common_utils.base_dir(payload))
+                Path(runtime_context.state_dir)
+                if runtime_context.state_dir
+                else _artifact_root(runtime_context, common_utils.base_dir(payload))
                 / ".fabric"
                 / "hermes"
                 / "runtimes"
