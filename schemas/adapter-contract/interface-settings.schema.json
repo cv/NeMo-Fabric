@@ -1,0 +1,18 @@
+{
+  "$defs": {
+    "interface_enabled": {
+      "default": true,
+      "description": "Serve this interface. A present interface is on unless this is false.",
+      "type": "boolean"
+    },
+    "interface_port": {
+      "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it.",
+      "maximum": 65535,
+      "minimum": 1,
+      "type": "integer"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Field definitions shared by every `harness.settings.interfaces.<name>` object. A descriptor copies these $defs unchanged into its settings_schema and refers to them with $ref. HTTP interfaces require port; terminal interfaces take none.",
+  "title": "InterfaceSettings"
+}

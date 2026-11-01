@@ -73,6 +73,9 @@ const transportSchemaNames = [
   "openai-stream-invocation.schema.json",
   "openai-stream-record.schema.json",
 ];
+// Descriptor authors copy this fragment into settings_schema; it describes no
+// runtime value, so the TypeScript model package has no type for it.
+const descriptorFragmentNames = ["interface-settings.schema.json"];
 
 const pendingFiles = new Map();
 let contractVersion;
@@ -89,6 +92,7 @@ assertAdapterSchemaInventory(
       .filter((spec) => spec.directory === undefined)
       .map((spec) => `${spec.name}.schema.json`),
     ...transportSchemaNames,
+    ...descriptorFragmentNames,
   ],
 );
 

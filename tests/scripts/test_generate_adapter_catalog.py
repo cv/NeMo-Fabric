@@ -6,7 +6,9 @@ from __future__ import annotations
 import hashlib
 import json
 import sys
+from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -170,3 +172,111 @@ def test_target_requires_a_bundled_adapter(catalog_repo: Path, adapter_source: P
 
 def test_committed_bundle_matches_all_bundled_sources():
     generate_catalog(Path(__file__).resolve().parents[2], check=True)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+FRAGMENT = Path("schemas/adapter-contract/interface-settings.schema.json")
+
+
+def _interface_descriptor() -> dict[str, Any]:
+    fragment = json.loads((REPO_ROOT / FRAGMENT).read_bytes())
+    return {
+        "adapter_id": "example.adapter",
+        "settings_schema": {
+            "type": "object",
+            "$defs": fragment["$defs"],
+            "properties": {
+                "interfaces": {
+                    "type": "object",
+                    "properties": {
+                        "api": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {"$ref": "#/$defs/interface_enabled"},
+                                "port": {"$ref": "#/$defs/interface_port"},
+                            },
+                            "required": ["port"],
+                            "additionalProperties": False,
+                        },
+                        "terminal": {
+                            "type": "object",
+                            "properties": {
+                                "enabled": {"$ref": "#/$defs/interface_enabled"}
+                            },
+                            "additionalProperties": False,
+                        },
+                    },
+                    "additionalProperties": False,
+                }
+            },
+        },
+        "interfaces": {"api": {"kind": "http"}, "terminal": {"kind": "terminal"}},
+    }
+
+
+@pytest.fixture(name="interface_source")
+def interface_source_fixture(catalog_repo: Path, adapter_source: Path) -> Path:
+    fragment = catalog_repo / FRAGMENT
+    fragment.parent.mkdir(parents=True)
+    fragment.write_bytes((REPO_ROOT / FRAGMENT).read_bytes())
+    adapter_source.write_text(json.dumps(_interface_descriptor()), encoding="utf-8")
+    return adapter_source
+
+
+def test_interface_settings_copy_the_shared_fragment(
+    catalog_repo: Path, interface_source: Path
+):
+    record = catalog_data(catalog_repo)["adapters"]["example.adapter"]
+
+    assert record["descriptor"]["interfaces"]["api"] == {"kind": "http"}
+
+
+def _drift_defs(descriptor: dict[str, Any]) -> None:
+    descriptor["settings_schema"]["$defs"]["interface_port"]["maximum"] = 1024
+
+
+def _drop_port_reference(descriptor: dict[str, Any]) -> None:
+    interfaces = descriptor["settings_schema"]["properties"]["interfaces"]
+    interfaces["properties"]["api"]["properties"]["port"] = {"type": "integer"}
+
+
+def _undeclared_interface(descriptor: dict[str, Any]) -> None:
+    del descriptor["interfaces"]["terminal"]
+
+
+def _terminal_declared_as_http(descriptor: dict[str, Any]) -> None:
+    descriptor["interfaces"]["terminal"]["kind"] = "http"
+
+
+def _open_interface_object(descriptor: dict[str, Any]) -> None:
+    interfaces = descriptor["settings_schema"]["properties"]["interfaces"]
+    del interfaces["properties"]["api"]["additionalProperties"]
+
+
+def _open_interfaces(descriptor: dict[str, Any]) -> None:
+    interfaces = descriptor["settings_schema"]["properties"]["interfaces"]
+    del interfaces["additionalProperties"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        _drift_defs,
+        _drop_port_reference,
+        _undeclared_interface,
+        _terminal_declared_as_http,
+        _open_interface_object,
+        _open_interfaces,
+    ],
+)
+def test_interface_settings_must_match_the_shared_fragment(
+    catalog_repo: Path,
+    interface_source: Path,
+    change: Callable[[dict[str, Any]], None],
+):
+    descriptor = _interface_descriptor()
+    change(descriptor)
+    interface_source.write_text(json.dumps(descriptor), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="interface"):
+        catalog_data(catalog_repo)

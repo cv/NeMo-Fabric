@@ -8,6 +8,19 @@
   "settings_schema": {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
+    "$defs": {
+      "interface_enabled": {
+        "type": "boolean",
+        "default": true,
+        "description": "Serve this interface. A present interface is on unless this is false."
+      },
+      "interface_port": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 65535,
+        "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it."
+      }
+    },
     "properties": {
       "openclaw_command": {
         "type": "string",
@@ -71,13 +84,11 @@
             "type": "object",
             "properties": {
               "enabled": {
-                "type": "boolean",
-                "default": true,
+                "$ref": "#/$defs/interface_enabled",
                 "description": "Serve the Control UI. A present dashboard is on unless this is false."
               },
               "port": {
-                "type": "integer",
-                "minimum": 1,
+                "$ref": "#/$defs/interface_port",
                 "maximum": 65425,
                 "description": "Exact loopback Gateway base port, which serves the Control UI. Start fails if it or port + 2 is in use, and OpenClaw reserves ports through port + 110. Can't be combined with port_range."
               },

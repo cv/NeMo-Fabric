@@ -848,6 +848,19 @@
           "module": "nemo_fabric_adapters.hermes.adapter"
         },
         "settings_schema": {
+          "$defs": {
+            "interface_enabled": {
+              "default": true,
+              "description": "Serve this interface. A present interface is on unless this is false.",
+              "type": "boolean"
+            },
+            "interface_port": {
+              "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it.",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
           "properties": {
@@ -860,15 +873,12 @@
                   "description": "Hermes's API server, run by a gateway child. After both interfaces start, the adapter writes its bearer token to <artifact root>/.fabric/hermes/runtimes/<runtime-id>/interfaces/api.token.",
                   "properties": {
                     "enabled": {
-                      "default": true,
-                      "description": "Serve Hermes's OpenAI-compatible API server. A present api interface is on unless this is false.",
-                      "type": "boolean"
+                      "$ref": "#/$defs/interface_enabled",
+                      "description": "Serve Hermes's OpenAI-compatible API server. A present api interface is on unless this is false."
                     },
                     "port": {
-                      "description": "Exact loopback port for the API server. Start fails if it is in use or equals the dashboard port.",
-                      "maximum": 65535,
-                      "minimum": 1,
-                      "type": "integer"
+                      "$ref": "#/$defs/interface_port",
+                      "description": "Exact loopback port for the API server. Start fails if it is in use or equals the dashboard port."
                     }
                   },
                   "required": [
@@ -881,15 +891,12 @@
                   "description": "Hermes's dashboard, which has no sign-in when bound to loopback. It needs a built frontend at HERMES_WEB_DIST.",
                   "properties": {
                     "enabled": {
-                      "default": true,
-                      "description": "Serve Hermes's dashboard and browser chat. A present dashboard is on unless this is false.",
-                      "type": "boolean"
+                      "$ref": "#/$defs/interface_enabled",
+                      "description": "Serve Hermes's dashboard and browser chat. A present dashboard is on unless this is false."
                     },
                     "port": {
-                      "description": "Exact loopback port for the dashboard. Start fails if it is in use or equals the api port.",
-                      "maximum": 65535,
-                      "minimum": 1,
-                      "type": "integer"
+                      "$ref": "#/$defs/interface_port",
+                      "description": "Exact loopback port for the dashboard. Start fails if it is in use or equals the api port."
                     }
                   },
                   "required": [
@@ -981,7 +988,7 @@
         "name": "nemo-fabric-adapters-hermes",
         "version": "0.7.0"
       },
-      "sha256": "280ac1c517c1330c2ec7691c0f5e01383187db7b26a9d63c2b5429fd91319c79",
+      "sha256": "663735fbecece53fe213011001cb41798bdf57100f6a5b1be4b37c99c70b2687",
       "source": "adapters/python/hermes/hermes.fabric-adapter.json"
     },
     "nvidia.fabric.kilo": {
@@ -1710,6 +1717,19 @@
           "script": "dist/cli.js"
         },
         "settings_schema": {
+          "$defs": {
+            "interface_enabled": {
+              "default": true,
+              "description": "Serve this interface. A present interface is on unless this is false.",
+              "type": "boolean"
+            },
+            "interface_port": {
+              "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it.",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "additionalProperties": false,
           "properties": {
             "approval_mode": {
@@ -1745,9 +1765,8 @@
                   "description": "Deep Agents Code's terminal UI, opened by <artifact root>/.fabric/deepagents-code/runtimes/<runtime-id>/interfaces/terminal in a separate session that shares the runtime's configuration and session store.",
                   "properties": {
                     "enabled": {
-                      "default": true,
-                      "description": "Write a launcher for Deep Agents Code's terminal UI. A present terminal is on unless this is false.",
-                      "type": "boolean"
+                      "$ref": "#/$defs/interface_enabled",
+                      "description": "Write a launcher for Deep Agents Code's terminal UI. A present terminal is on unless this is false."
                     }
                   },
                   "type": "object"
@@ -1774,7 +1793,7 @@
         "name": "nemo-fabric-adapters-deepagents-code",
         "version": "0.7.0"
       },
-      "sha256": "9f90ed5fb7f1debbb629233691956a98b732df1340726e1a511c60b6399544d9",
+      "sha256": "7e99cdc8c93c6e85ff4c03dfa334fd11b43d5d4c2a019d230ad462d39ce1e338",
       "source": "adapters/typescript/deepagents-code/deepagents-code.fabric-adapter.json"
     },
     "nvidia.fabric.mini-swe-agent": {
@@ -2231,6 +2250,19 @@
           "module": "nemo_fabric_adapters.openclaw.adapter"
         },
         "settings_schema": {
+          "$defs": {
+            "interface_enabled": {
+              "default": true,
+              "description": "Serve this interface. A present interface is on unless this is false.",
+              "type": "boolean"
+            },
+            "interface_port": {
+              "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it.",
+              "maximum": 65535,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
           "dependentSchemas": {
@@ -2305,15 +2337,13 @@
                   "description": "OpenClaw's Control UI. After the Gateway starts, the adapter writes its sign-in token to <artifact root>/.fabric/openclaw/runtimes/<runtime-id>/interfaces/dashboard.token.",
                   "properties": {
                     "enabled": {
-                      "default": true,
-                      "description": "Serve the Control UI. A present dashboard is on unless this is false.",
-                      "type": "boolean"
+                      "$ref": "#/$defs/interface_enabled",
+                      "description": "Serve the Control UI. A present dashboard is on unless this is false."
                     },
                     "port": {
+                      "$ref": "#/$defs/interface_port",
                       "description": "Exact loopback Gateway base port, which serves the Control UI. Start fails if it or port + 2 is in use, and OpenClaw reserves ports through port + 110. Can't be combined with port_range.",
-                      "maximum": 65425,
-                      "minimum": 1,
-                      "type": "integer"
+                      "maximum": 65425
                     },
                     "public_origins": {
                       "description": "Browser origins accepted in addition to http://127.0.0.1:<port> and http://localhost:<port>. OpenClaw accepts any loopback origin regardless.",
@@ -2386,7 +2416,7 @@
         "name": "nemo-fabric-adapters-openclaw",
         "version": "0.7.0"
       },
-      "sha256": "8378d81c1975a260643a9ede5ae7a0e3dcc1e28ee40ea24847d80979fff00d30",
+      "sha256": "fa76f4fedfcf418ceb2786ad8288020aaa164a115127afc289683b43ef0320f5",
       "source": "adapters/python/openclaw/openclaw.fabric-adapter.json"
     },
     "nvidia.fabric.opencode": {

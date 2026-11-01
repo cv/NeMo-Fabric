@@ -80,11 +80,13 @@ pub enum SchemaName {
     FabricEvent,
     /// Runtime resource snapshot schema.
     RuntimeResourceSnapshot,
+    /// Shared `harness.settings.interfaces` field definitions for descriptors.
+    InterfaceSettings,
 }
 
 impl SchemaName {
     /// All public schemas in stable output order.
-    pub const ALL: [Self; 28] = [
+    pub const ALL: [Self; 29] = [
         Self::ExecutionEvidence,
         Self::CheckRequest,
         Self::CheckReport,
@@ -113,6 +115,7 @@ impl SchemaName {
         Self::ErrorInfo,
         Self::FabricEvent,
         Self::RuntimeResourceSnapshot,
+        Self::InterfaceSettings,
     ];
 
     /// Stable file stem for this schema.
@@ -146,6 +149,7 @@ impl SchemaName {
             Self::ErrorInfo => "error-info",
             Self::FabricEvent => "fabric-event",
             Self::RuntimeResourceSnapshot => "runtime-resource-snapshot",
+            Self::InterfaceSettings => "interface-settings",
         }
     }
 
@@ -169,7 +173,8 @@ impl SchemaName {
             | Self::AdapterInvocation
             | Self::OpenAiStreamInvocation
             | Self::OpenAiStreamRecord
-            | Self::RuntimeContext => PathBuf::from("adapter-contract").join(filename),
+            | Self::RuntimeContext
+            | Self::InterfaceSettings => PathBuf::from("adapter-contract").join(filename),
             _ => PathBuf::from("sdk").join(filename),
         }
     }
@@ -211,6 +216,7 @@ impl SchemaName {
             "runtime-resource-snapshot" | "runtime_resource_snapshot" => {
                 Ok(Self::RuntimeResourceSnapshot)
             }
+            "interface-settings" | "interface_settings" => Ok(Self::InterfaceSettings),
             _ => Err(FabricError::UnknownSchema {
                 schema: value.to_string(),
                 available: Self::ALL
@@ -255,7 +261,34 @@ pub fn generate_schema(schema: SchemaName) -> Result<Value> {
         SchemaName::ErrorInfo => to_value(schema_for!(ErrorInfo)),
         SchemaName::FabricEvent => to_value(schema_for!(FabricEvent)),
         SchemaName::RuntimeResourceSnapshot => to_value(schema_for!(RuntimeResourceSnapshot)),
+        SchemaName::InterfaceSettings => Ok(interface_settings_schema()),
     }
+}
+
+/// Field definitions shared by every `harness.settings.interfaces.<name>` object.
+///
+/// A descriptor that offers interfaces copies these `$defs` unchanged into its
+/// `settings_schema` and refers to them with `$ref`, so its descriptor stays
+/// self-contained. Adapters may add interface-specific fields beside them.
+fn interface_settings_schema() -> Value {
+    serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "InterfaceSettings",
+        "description": "Field definitions shared by every `harness.settings.interfaces.<name>` object. A descriptor copies these $defs unchanged into its settings_schema and refers to them with $ref. HTTP interfaces require port; terminal interfaces take none.",
+        "$defs": {
+            "interface_enabled": {
+                "type": "boolean",
+                "default": true,
+                "description": "Serve this interface. A present interface is on unless this is false."
+            },
+            "interface_port": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 65535,
+                "description": "Exact loopback port, with no default. Start fails if the port is in use or another interface of the runtime uses it."
+            }
+        }
+    })
 }
 
 /// Generate all schemas keyed by stable schema name.
