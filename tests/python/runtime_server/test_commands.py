@@ -70,6 +70,9 @@ def test_start_bootstraps_without_extra_lifecycle_flags(tmp_path, config):
             "r",
         ],
         ["configure", "--agent", "researcher", "--config"],
+        ["status", "--agent", "researcher"],
+        ["status", "--runtime-id", "r"],
+        ["status", "--agent", "researcher", "--runtime-id", "r", "--live"],
     ],
 )
 def test_invalid_flags_emit_one_safe_json_response_and_exit_one(arguments, capsys):
@@ -108,6 +111,11 @@ def test_serve_errors_use_stderr_without_command_response(arguments, capsys):
             {"agent": "researcher", "runtime_id": "r"},
         ),
         ("serve", [], {}),
+        (
+            "status",
+            ["--agent", "researcher", "--runtime-id", "r"],
+            {"agent": "researcher", "runtime_id": "r"},
+        ),
     ],
 )
 def test_named_commands_construct_versioned_requests(operation, flags, fields):
@@ -263,6 +271,20 @@ def test_oversized_response_reports_unknown_effects():
             "status": "succeeded",
             "changed": False,
             "result": {"health": None},
+            "error": None,
+        },
+        {
+            "operation": "status",
+            "status": "succeeded",
+            "changed": False,
+            "result": None,
+            "error": None,
+        },
+        {
+            "operation": "status",
+            "status": "succeeded",
+            "changed": True,
+            "result": {"runtime_id": "r"},
             "error": None,
         },
     ],

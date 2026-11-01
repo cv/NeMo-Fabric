@@ -122,6 +122,8 @@ class RuntimeServer:
                 )
             if self.shutting_down:
                 raise ProtocolError("host_stopping")
+            if operation == "status":
+                return envelope(operation, self._status(request))
 
             if operation == "start":
                 async with self._start_lock:
@@ -216,6 +218,22 @@ class RuntimeServer:
             return envelope(
                 operation, result, changed=changed, error=error, effects=effects
             )
+
+    def _status(self, request: dict[str, Any]) -> dict[str, Any]:
+        """Return a running runtime's current handle without waiting for its work."""
+        owned = self.runtimes.get(request["runtime_id"])
+        if owned is None:
+            raise ProtocolError("runtime_unavailable", "status")
+        if owned.agent != request["agent"]:
+            raise ProtocolError("wrong_agent", "status")
+        runtime = owned.runtime
+        if (
+            owned.state != "running"
+            or runtime is None
+            or runtime.status != RuntimeStatus.ACTIVE
+        ):
+            raise ProtocolError("runtime_unavailable", "status")
+        return runtime.handle.to_mapping()
 
     async def _check_runtime(
         self, command: dict[str, Any], started: float

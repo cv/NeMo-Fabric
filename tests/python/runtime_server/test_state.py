@@ -6,7 +6,7 @@
 import asyncio
 
 import pytest
-from nemo_fabric import FabricConfigError, RunRequest, RuntimeStatus
+from nemo_fabric import FabricConfigError, RunRequest, RuntimeHandle, RuntimeStatus
 from nemo_fabric.errors import FabricRuntimeError
 from nemo_fabric.runtime_server.protocol import ProtocolError
 
@@ -446,3 +446,72 @@ async def test_stopped_runtime_records_are_bounded(
     assert (await host.handle(host_request("stop", runtime_id="runtime-129")))[
         "status"
     ] == "succeeded"
+
+
+async def test_status_returns_the_current_handle_without_effects(
+    host, host_request, mock_runtime, mock_fabric
+):
+    mock_runtime.handle = RuntimeHandle.from_mapping(
+        {
+            **mock_runtime.handle.to_mapping(),
+            "interfaces": {
+                "terminal": {"kind": "terminal", "launcher": "/sandbox/terminal"}
+            },
+        }
+    )
+    await host.handle(host_request("start"))
+
+    response = await host.handle(host_request("status", runtime_id="runtime-1"))
+
+    assert response == {
+        "operation": "status",
+        "status": "succeeded",
+        "changed": False,
+        "result": mock_runtime.handle.to_mapping(),
+        "error": None,
+    }
+    mock_fabric.start_runtime.assert_awaited_once()
+    mock_runtime.invoke.assert_not_awaited()
+    mock_runtime.stop.assert_not_awaited()
+
+
+async def test_status_answers_while_the_runtime_is_busy(
+    host, host_request, mock_runtime
+):
+    await host.handle(host_request("start"))
+
+    async with host.runtimes["runtime-1"].lock:
+        response = await asyncio.wait_for(
+            host.handle(host_request("status", runtime_id="runtime-1")), 1
+        )
+
+    assert response["result"] == mock_runtime.handle.to_mapping()
+
+
+@pytest.mark.parametrize("stopped", [False, True])
+async def test_status_of_an_unavailable_runtime_has_no_effects(
+    host, host_request, stopped
+):
+    if stopped:
+        await host.handle(host_request("start"))
+        await host.handle(host_request("stop"))
+
+    response = await host.handle(host_request("status", runtime_id="runtime-1"))
+
+    assert response["status"] == "failed"
+    assert response["changed"] is False
+    assert response["result"] is None
+    assert response["error"]["code"] == "runtime_unavailable"
+    assert response["error"]["stage"] == "status"
+    assert response["error"]["effects"] == "none"
+
+
+async def test_status_requires_the_owning_agent(host, host_request):
+    await host.handle(host_request("start"))
+
+    response = await host.handle(
+        host_request("status", runtime_id="runtime-1", agent="reviewer")
+    )
+
+    assert response["error"]["code"] == "wrong_agent"
+    assert response["result"] is None

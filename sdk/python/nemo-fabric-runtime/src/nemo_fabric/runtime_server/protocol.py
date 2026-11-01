@@ -18,7 +18,9 @@ CALL_SECONDS = 320.0
 READ_SECONDS = 10.0
 SHUTDOWN_SECONDS = 4.0
 SOCKET_PATH = "/sandbox/fabric.sock"
-OPERATIONS = ("start", "invoke", "stop", "serve", "check")
+OPERATIONS = ("start", "invoke", "stop", "serve", "check", "status")
+# Commands that only read the server's state and never have effects.
+READ_OPERATIONS = ("check", "status")
 # A cause is an SDK or adapter error code, never its message or other values.
 CAUSE = re.compile(r"[a-z][a-z0-9_]{0,63}")
 CONFIG_OPERATIONS = ("start",)
@@ -122,9 +124,9 @@ def validate_request(request: Any) -> str:
     ):
         raise ProtocolError("interface_unsupported", unsupported=True)
     required = {"interface_version", "operation"}
-    if operation in ("start", "invoke", "stop"):
+    if operation in ("start", "invoke", "stop", "status"):
         required.add("agent")
-    if operation in ("invoke", "stop"):
+    if operation in ("invoke", "stop", "status"):
         required.add("runtime_id")
     if operation == "start":
         required.add("config")
@@ -229,12 +231,13 @@ def encode_response(response: dict[str, Any]) -> bytes:
             return encoded
     except (ValueError, TypeError, RecursionError):
         pass
+    read_only = response["operation"] in READ_OPERATIONS
     return _encode(
         envelope(
             response["operation"],
-            changed=False if response["operation"] == "check" else None,
+            changed=False if read_only else None,
             error=ProtocolError("response_too_large", "transport"),
-            effects="none" if response["operation"] == "check" else "unknown",
+            effects="none" if read_only else "unknown",
         )
     )
 
@@ -266,6 +269,7 @@ def validate_response(response: dict[str, Any], operation: str) -> None:
                 "stop",
                 "invoke",
                 "check",
+                "status",
                 "transport",
             )
             or error["effects"] not in ("none", "applied", "unknown")
@@ -285,6 +289,10 @@ def validate_response(response: dict[str, Any], operation: str) -> None:
         elif operation == "start":
             RuntimeHandle.from_mapping(result)
             if type(response["changed"]) is not bool:
+                raise invalid
+        elif operation == "status":
+            RuntimeHandle.from_mapping(result)
+            if response["changed"] is not False:
                 raise invalid
         elif operation == "stop":
             if result is not None or type(response["changed"]) is not bool:
