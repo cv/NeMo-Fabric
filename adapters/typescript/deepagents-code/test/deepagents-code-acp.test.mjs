@@ -26,7 +26,7 @@ async function fakeDcode(directory) {
       "#!/bin/sh",
       'if [ "$1" != "--acp" ]; then echo "tui $* home=$DEEPAGENTS_HOME cwd=$(pwd)"; exit 0; fi',
       'printf "%s\\n" "$@" > "$TEST_ARGUMENTS"',
-      'printf "home=%s\\nkey=%s\\nupdate=%s\\n" "$DEEPAGENTS_HOME" "$FABRIC_MODEL_KEY" "$DEEPAGENTS_CODE_NO_UPDATE_CHECK" > "$TEST_ENVIRONMENT"',
+      'printf "home=%s\\nkey=%s\\nupdate=%s\\ndotenv=%s\\n" "$DEEPAGENTS_HOME" "$FABRIC_MODEL_KEY" "$DEEPAGENTS_CODE_NO_UPDATE_CHECK" "$DEEPAGENTS_CODE_READ_PROJECT_DOTENV" > "$TEST_ENVIRONMENT"',
       'exec "$TEST_NODE_EXECUTABLE" "$TEST_ACP_FIXTURE"',
       "",
     ].join("\n"),
@@ -110,7 +110,7 @@ for (const [approvalMode, flags, permission] of [
     assert.deepEqual((await readFile(join(directory, "arguments"), "utf8")).trim().split("\n"), flags);
     assert.equal(
       await readFile(join(directory, "environment"), "utf8"),
-      `home=${home}\nkey=model-key-value\nupdate=1\n`,
+      `home=${home}\nkey=model-key-value\nupdate=1\ndotenv=0\n`,
     );
     assert.match(await readFile(join(home, "config.toml"), "utf8"), /api_key_env = "FABRIC_MODEL_KEY"/u);
     assert.doesNotMatch(await readFile(join(home, "config.toml"), "utf8"), /model-key-value/u);

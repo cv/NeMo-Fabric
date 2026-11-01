@@ -47,9 +47,11 @@ open it: the runtime's ACP session holds that thread while the runtime runs.
 Apart from what the agent's own tools request, invocations over ACP contact
 only the model endpoint. At each start, the
 terminal UI's `langgraph dev` agent server sends LangGraph CLI's usage record to
-`kzrlppojinpcyyaipxnb.supabase.co` unless the launching environment sets
-`LANGGRAPH_CLI_NO_ANALYTICS=1`, and without `rg` on `PATH`, the terminal UI
-downloads ripgrep from GitHub.
+`kzrlppojinpcyyaipxnb.supabase.co`; to opt out, set
+`LANGGRAPH_CLI_NO_ANALYTICS=1` in the environment that runs the launcher.
+Without `rg` on `PATH`, the terminal UI downloads ripgrep from GitHub, so
+install ripgrep in the environment. The adapter turns off reading a workspace
+`.env` file, since configuration comes from `FabricConfig`.
 
 For settings, state locations, the launcher's limitations, and health checks,
 refer to the

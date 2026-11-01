@@ -24,6 +24,8 @@ export const QUIET_ENVIRONMENT: Readonly<Record<string, string>> = {
   DEEPAGENTS_CODE_AUTO_UPDATE: "0",
   DEEPAGENTS_CODE_PRICES_AUTO_UPDATE: "0",
   DEEPAGENTS_CODE_PLUGIN_AUTO_UPDATE: "0",
+  // Configuration comes from FabricConfig, not a .env file in the workspace.
+  DEEPAGENTS_CODE_READ_PROJECT_DOTENV: "0",
 };
 
 export interface DeepAgentsCodeSettings {

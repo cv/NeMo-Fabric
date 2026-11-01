@@ -104,6 +104,7 @@ test("writes a launcher that refuses without the marker and holds no secrets", (
   assert.match(script, /if \[ ! -e '\/runtime\/interfaces\/terminal.running' \]; then/u);
   assert.match(script, /export DEEPAGENTS_HOME='\/runtime\/deepagents'/u);
   assert.match(script, /export DEEPAGENTS_CODE_NO_UPDATE_CHECK='1'/u);
+  assert.match(script, /export DEEPAGENTS_CODE_READ_PROJECT_DOTENV='0'/u);
   assert.match(script, /cd '\/work space' \|\| exit 1/u);
   assert.match(script, /exec '\/opt\/dcode\/bin\/dcode' --no-tracing "\$@"/u);
 });
