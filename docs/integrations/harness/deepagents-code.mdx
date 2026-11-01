@@ -44,6 +44,13 @@ configuration and session store, and refuses to start after the runtime stops.
 The terminal UI can list the runtime's thread with `threads list`, but can't
 open it: the runtime's ACP session holds that thread while the runtime runs.
 
+Apart from what the agent's own tools request, invocations over ACP contact
+only the model endpoint. At each start, the
+terminal UI's `langgraph dev` agent server sends LangGraph CLI's usage record to
+`kzrlppojinpcyyaipxnb.supabase.co` unless the launching environment sets
+`LANGGRAPH_CLI_NO_ANALYTICS=1`, and without `rg` on `PATH`, the terminal UI
+downloads ripgrep from GitHub.
+
 For settings, state locations, the launcher's limitations, and health checks,
 refer to the
 [Deep Agents Code adapter guide](https://github.com/NVIDIA/NeMo-Fabric/tree/main/adapters/typescript/deepagents-code).
