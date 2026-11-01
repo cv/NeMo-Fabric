@@ -83,6 +83,13 @@ export type AdapterDescriptor = {
    */
   extension_schemas?: Partial<Record<AdapterExtensionPoint, JsonObject>>;
   /**
+   * Native interfaces this adapter can serve, keyed by interface name.
+   * Absent means none.
+   */
+  interfaces?: {
+    [k: string]: AdapterInterface;
+  };
+  /**
    * JSON Schema applied to every normalized `FabricConfig.models` entry.
    */
   model_schema?: JsonObject | null;
@@ -151,6 +158,16 @@ export type AdapterConfigSupport = {
    * @minItems 1
    */
   system_instruction_modes?: [InstructionMode, ...InstructionMode[]] | null;
+} & JsonObject;
+/**
+ * Native interface an adapter can serve, enabled under
+ * `harness.settings.interfaces.<name>`.
+ */
+export type AdapterInterface = {
+  /**
+   * Interface kind.
+   */
+  kind: "http" | "terminal";
 } & JsonObject;
 /**
  * Runtime requirements.

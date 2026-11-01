@@ -322,6 +322,27 @@ impl AdapterTargetDescriptor {
     }
 }
 
+/// Kind of native interface an adapter can serve.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceKind {
+    /// An HTTP server on a loopback port, such as an API or a browser dashboard.
+    Http,
+    /// A terminal UI that a person opens by running a launcher in the environment.
+    Terminal,
+}
+
+/// Native interface an adapter can serve, enabled under
+/// `harness.settings.interfaces.<name>`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct AdapterInterface {
+    /// Interface kind.
+    pub kind: InterfaceKind,
+    /// Additive interface fields.
+    #[serde(default, flatten)]
+    pub extensions: BTreeMap<String, Value>,
+}
+
 /// Language-neutral adapter descriptor for a harness integration.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct AdapterDescriptor {
@@ -364,6 +385,10 @@ pub struct AdapterDescriptor {
     /// Runtime lifecycle operations supported by this adapter.
     #[serde(default)]
     pub capabilities: RuntimeCapabilities,
+    /// Native interfaces this adapter can serve, keyed by interface name.
+    /// Absent means none.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub interfaces: BTreeMap<String, AdapterInterface>,
     /// Additive adapter descriptor fields.
     #[serde(default, flatten)]
     pub extensions: BTreeMap<String, Value>,
@@ -6771,6 +6796,46 @@ mod tests {
 
         assert_eq!(descriptor.contract_version, ADAPTER_CONTRACT_VERSION);
         assert_eq!(descriptor.adapter_kind, AdapterKind::Python);
+    }
+
+    #[test]
+    fn descriptors_declare_their_native_interfaces() {
+        for (path, expected) in [
+            (
+                "adapters/python/openclaw/openclaw.fabric-adapter.json",
+                vec![("dashboard", InterfaceKind::Http)],
+            ),
+            (
+                "adapters/python/hermes/hermes.fabric-adapter.json",
+                vec![
+                    ("api", InterfaceKind::Http),
+                    ("dashboard", InterfaceKind::Http),
+                ],
+            ),
+            (
+                "adapters/typescript/deepagents-code/deepagents-code.fabric-adapter.json",
+                vec![("terminal", InterfaceKind::Terminal)],
+            ),
+            ("adapters/python/claude/claude.fabric-adapter.json", vec![]),
+        ] {
+            let descriptor =
+                load_adapter_descriptor(repository_root().join(path)).expect("adapter descriptor");
+            let interfaces: Vec<_> = descriptor
+                .interfaces
+                .iter()
+                .map(|(name, interface)| (name.as_str(), interface.kind))
+                .collect();
+            assert_eq!(interfaces, expected, "{path}");
+        }
+
+        let error = serde_json::from_value::<AdapterDescriptor>(serde_json::json!({
+            "contract_version": ADAPTER_CONTRACT_VERSION,
+            "adapter_id": "test.fabric.interfaces",
+            "adapter_kind": "python",
+            "interfaces": {"console": {"kind": "stdio"}}
+        }))
+        .expect_err("unknown interface kind");
+        assert!(error.to_string().contains("stdio"), "{error}");
     }
 
     #[test]

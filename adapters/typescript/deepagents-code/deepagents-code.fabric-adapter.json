@@ -98,5 +98,8 @@
     "cancellation": false,
     "updates": false,
     "service": false
+  },
+  "interfaces": {
+    "terminal": {"kind": "terminal"}
   }
 }

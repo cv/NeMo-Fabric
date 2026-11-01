@@ -178,6 +178,13 @@
           },
           "type": "object"
         },
+        "interfaces": {
+          "additionalProperties": {
+            "$ref": "#/$defs/AdapterInterface"
+          },
+          "description": "Native interfaces this adapter can serve, keyed by interface name.\nAbsent means none.",
+          "type": "object"
+        },
         "model_schema": {
           "additionalProperties": true,
           "description": "JSON Schema applied to every normalized `FabricConfig.models` entry.",
@@ -229,6 +236,20 @@
         "contract_version",
         "adapter_id",
         "adapter_kind"
+      ],
+      "type": "object"
+    },
+    "AdapterInterface": {
+      "additionalProperties": true,
+      "description": "Native interface an adapter can serve, enabled under\n`harness.settings.interfaces.<name>`.",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/InterfaceKind",
+          "description": "Interface kind."
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object"
     },
@@ -1654,6 +1675,21 @@
         }
       },
       "type": "object"
+    },
+    "InterfaceKind": {
+      "description": "Kind of native interface an adapter can serve.",
+      "oneOf": [
+        {
+          "const": "http",
+          "description": "An HTTP server on a loopback port, such as an API or a browser dashboard.",
+          "type": "string"
+        },
+        {
+          "const": "terminal",
+          "description": "A terminal UI that a person opens by running a launcher in the environment.",
+          "type": "string"
+        }
+      ]
     },
     "InventoryStatus": {
       "description": "Availability of an installation inventory.",

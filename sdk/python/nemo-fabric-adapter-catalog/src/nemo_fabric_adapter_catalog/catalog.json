@@ -835,6 +835,14 @@
             "type": "object"
           }
         },
+        "interfaces": {
+          "api": {
+            "kind": "http"
+          },
+          "dashboard": {
+            "kind": "http"
+          }
+        },
         "requirements": {},
         "runner": {
           "module": "nemo_fabric_adapters.hermes.adapter"
@@ -973,7 +981,7 @@
         "name": "nemo-fabric-adapters-hermes",
         "version": "0.7.0"
       },
-      "sha256": "56873a683ca1e3ae4f145b863fbb623594879213df3080671bc5133672d2c49d",
+      "sha256": "280ac1c517c1330c2ec7691c0f5e01383187db7b26a9d63c2b5429fd91319c79",
       "source": "adapters/python/hermes/hermes.fabric-adapter.json"
     },
     "nvidia.fabric.kilo": {
@@ -1657,6 +1665,11 @@
             "type": "object"
           }
         },
+        "interfaces": {
+          "terminal": {
+            "kind": "terminal"
+          }
+        },
         "model_schema": {
           "additionalProperties": false,
           "properties": {
@@ -1761,7 +1774,7 @@
         "name": "nemo-fabric-adapters-deepagents-code",
         "version": "0.7.0"
       },
-      "sha256": "10a30106dd26d5b50750f68dae0b17b39ec4f9174e99bfb551d9932b0a86bd12",
+      "sha256": "9f90ed5fb7f1debbb629233691956a98b732df1340726e1a511c60b6399544d9",
       "source": "adapters/typescript/deepagents-code/deepagents-code.fabric-adapter.json"
     },
     "nvidia.fabric.mini-swe-agent": {
@@ -2159,6 +2172,11 @@
             "type": "object"
           }
         },
+        "interfaces": {
+          "dashboard": {
+            "kind": "http"
+          }
+        },
         "model_schema": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "additionalProperties": false,
@@ -2368,7 +2386,7 @@
         "name": "nemo-fabric-adapters-openclaw",
         "version": "0.7.0"
       },
-      "sha256": "6c7440f20bf5cbf5e2ef852976f7e56c73d3e7882fb7bbc7e3fd329495400ad7",
+      "sha256": "8378d81c1975a260643a9ede5ae7a0e3dcc1e28ee40ea24847d80979fff00d30",
       "source": "adapters/python/openclaw/openclaw.fabric-adapter.json"
     },
     "nvidia.fabric.opencode": {

@@ -152,5 +152,9 @@
   },
   "capabilities": {
     "metadata": {"health_checks": ["live", "active", "ready"]}
+  },
+  "interfaces": {
+    "api": {"kind": "http"},
+    "dashboard": {"kind": "http"}
   }
 }

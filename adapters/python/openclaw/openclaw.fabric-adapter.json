@@ -203,5 +203,8 @@
     "streaming": false,
     "updates": false,
     "cancellation": false
+  },
+  "interfaces": {
+    "dashboard": {"kind": "http"}
   }
 }
