@@ -89,7 +89,7 @@ for (const [approvalMode, flags, permission] of [
   test(`runs dcode over ACP with ${approvalMode} approvals and the runtime's configuration`, async () => {
     const { directory, input } = await startInput({ approval_mode: approvalMode });
     const runtime = new DeepAgentsCodeAdapterRuntime(new DeepAgentsCodeAcpSessionFactory());
-    await runtime.start(input);
+    const started = await runtime.start(input);
     let first;
     let second;
     let checks;
@@ -102,6 +102,7 @@ for (const [approvalMode, flags, permission] of [
     }
     const home = join(runtimeDirectory(directory), "deepagents");
 
+    assert.equal(started, undefined);
     assert.equal(first.status, "succeeded");
     assert.match(first.output.response, new RegExp(`^permission:1:.*:permission=${permission}:`, "u"));
     assert.match(second.output.response, /^again:2:/u);
@@ -123,7 +124,7 @@ test("offers the terminal UI only while the runtime runs", async () => {
   const launcher = join(interfaces, "terminal");
   const marker = join(interfaces, "terminal.running");
   const runtime = new DeepAgentsCodeAdapterRuntime(new DeepAgentsCodeAcpSessionFactory());
-  await runtime.start(input);
+  const started = await runtime.start(input);
   let running;
   let sessionId;
   try {
@@ -137,6 +138,7 @@ test("offers the terminal UI only while the runtime runs", async () => {
     (error) => error,
   );
 
+  assert.deepEqual(started, { interfaces: { terminal: { kind: "terminal", launcher } } });
   assert.ok(sessionId.length > 0);
   assert.equal(
     running.stdout.trim(),

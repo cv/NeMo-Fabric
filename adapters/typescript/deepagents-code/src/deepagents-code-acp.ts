@@ -13,6 +13,7 @@ import {
   type AcpPromptResult,
   type AcpSession,
   type AdapterStartInput,
+  type RuntimeInterface,
 } from "nemo-fabric-adapters-common";
 
 import {
@@ -34,6 +35,8 @@ export interface DeepAgentsCodePromptOutcome {
 
 export interface DeepAgentsCodeSessionHandle {
   readonly id: string;
+  /** Interfaces the runtime serves, for its handle; absent when none is enabled. */
+  readonly interfaces?: Record<string, RuntimeInterface>;
   check(level: CheckLevel): Promise<AdapterCheckResult>;
   prompt(text: string, timeoutMs?: number): Promise<DeepAgentsCodePromptOutcome>;
   stop(): Promise<void>;
@@ -89,13 +92,15 @@ function translateRunnerError(error: AcpRunnerError, stage: "start" | "prompt"):
 class DeepAgentsCodeAcpSession implements DeepAgentsCodeSessionHandle {
   private stopped = false;
   readonly id: string;
+  readonly interfaces?: Record<string, RuntimeInterface>;
   private readonly session: AcpSession;
   private readonly marker: string | undefined;
 
-  constructor(session: AcpSession, marker: string | undefined) {
+  constructor(session: AcpSession, terminal: { launcher: string; marker: string } | undefined) {
     this.session = session;
     this.id = session.sessionId;
-    this.marker = marker;
+    this.marker = terminal?.marker;
+    if (terminal !== undefined) this.interfaces = { terminal: { kind: "terminal", launcher: terminal.launcher } };
   }
 
   async check(level: CheckLevel): Promise<AdapterCheckResult> {
@@ -140,10 +145,11 @@ export class DeepAgentsCodeAcpSessionFactory implements DeepAgentsCodeSessionFac
     const environment = childEnvironment(input, home, model);
     const command = await resolveCommand(settings.dcodeCommand, input.baseDir, environment.PATH);
     const interfaces = join(directory, "interfaces");
+    const launcher = join(interfaces, "terminal");
     const marker = settings.terminal ? join(interfaces, "terminal.running") : undefined;
     if (marker !== undefined) {
       await mkdir(interfaces, { recursive: true, mode: 0o700 });
-      await writeFile(join(interfaces, "terminal"), launcherScript({ home, workspace, command, marker }), { mode: 0o700 });
+      await writeFile(launcher, launcherScript({ home, workspace, command, marker }), { mode: 0o700 });
     }
     let session: AcpSession;
     try {
@@ -172,6 +178,6 @@ export class DeepAgentsCodeAcpSessionFactory implements DeepAgentsCodeSessionFac
         throw error;
       }
     }
-    return new DeepAgentsCodeAcpSession(session, marker);
+    return new DeepAgentsCodeAcpSession(session, marker === undefined ? undefined : { launcher, marker });
   }
 }

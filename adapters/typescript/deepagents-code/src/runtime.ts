@@ -9,7 +9,13 @@ import type {
   JsonObject,
   RuntimeContext,
 } from "nemo-fabric-adapter-contract";
-import { LifecycleError, unobservedHealth, type AdapterRuntime, type AdapterStartInput } from "nemo-fabric-adapters-common";
+import {
+  LifecycleError,
+  unobservedHealth,
+  type AdapterRuntime,
+  type AdapterStartInput,
+  type AdapterStartOutput,
+} from "nemo-fabric-adapters-common";
 
 import type {
   DeepAgentsCodePromptOutcome,
@@ -31,12 +37,14 @@ export class DeepAgentsCodeAdapterRuntime implements AdapterRuntime {
     this.factory = factory;
   }
 
-  async start(input: AdapterStartInput): Promise<void> {
+  async start(input: AdapterStartInput): Promise<AdapterStartOutput | undefined> {
     if (this.session !== undefined) {
       throw new LifecycleError("deepagents_code_already_started", "Deep Agents Code adapter runtime is already started");
     }
     this.session = await this.factory.create(input);
     this.generation += 1;
+    const interfaces = this.session.interfaces;
+    return interfaces === undefined ? undefined : { interfaces };
   }
 
   private async invalidate(session: DeepAgentsCodeSessionHandle): Promise<void> {
