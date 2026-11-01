@@ -85,7 +85,10 @@ variables, and the model key's variable. It runs `dcode` with `--no-tracing`
 and turns off its update checks, automatic updates, and price and plugin
 refreshes through `DEEPAGENTS_CODE_NO_UPDATE_CHECK`,
 `DEEPAGENTS_CODE_AUTO_UPDATE`, `DEEPAGENTS_CODE_PRICES_AUTO_UPDATE` and
-`DEEPAGENTS_CODE_PLUGIN_AUTO_UPDATE`.
+`DEEPAGENTS_CODE_PLUGIN_AUTO_UPDATE`. It also sets
+`DEEPAGENTS_CODE_READ_PROJECT_DOTENV=0`, so a `.env` file in the workspace
+can't add variables: configuration comes from `FabricConfig`. The launcher sets
+the same variables for the terminal UI.
 
 In a run of `deepagents-code` 0.2.2 against a loopback model, invocations
 over ACP contacted only the model endpoint, apart from what the agent's own
@@ -95,12 +98,11 @@ don't turn off:
 - At each start, the `langgraph dev` agent server that `dcode` starts sends
   LangGraph CLI's usage record, with the operating system and its version, the
   Python and CLI versions, and the command, to
-  `kzrlppojinpcyyaipxnb.supabase.co`. `dcode` has no setting for it;
-  LangGraph CLI skips it when the launching environment sets
-  `LANGGRAPH_CLI_NO_ANALYTICS=1`.
+  `kzrlppojinpcyyaipxnb.supabase.co`. The adapter leaves it on. To opt out, set
+  `LANGGRAPH_CLI_NO_ANALYTICS=1` in the environment that runs the launcher;
+  the launcher passes it through.
 - Without `rg` on `PATH`, `dcode` downloads ripgrep from GitHub into its own
-  installation. The adapter doesn't set `DEEPAGENTS_CODE_OFFLINE` or
-  `DEEPAGENTS_CODE_RIPGREP_INSTALLER=system`, which skip the download.
+  installation. Install ripgrep in the environment to avoid the download.
 
 ## Open the Terminal UI
 
