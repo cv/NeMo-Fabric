@@ -81,7 +81,8 @@ and sets `DEEPAGENTS_CODE_NO_UPDATE_CHECK=1`, `DEEPAGENTS_CODE_AUTO_UPDATE=0`,
 updates, and price and plugin refreshes. It also sets
 `DEEPAGENTS_CODE_READ_PROJECT_DOTENV=0`, so a `.env` file in the workspace
 can't add variables: configuration comes from `FabricConfig`. The terminal
-launcher sets the same variables.
+launcher sets the same `DEEPAGENTS_CODE_*` switches but doesn't pass on the
+runtime environment's variables; see below.
 
 In a run of `deepagents-code` 0.2.2 against a loopback model, invocations
 contacted only the model endpoint, apart from what the agent's own tools
@@ -134,9 +135,9 @@ refuses to resume a thread open elsewhere.
 
 ## Runtime Health
 
-`Fabric.check()` supports `live`, `active` and `ready`. `dcode` runs its agent
-inside the ACP process and keeps the runtime's session open in it, so each level
-observes that the ACP child process is still running. A busy process passes. A
+`Fabric.check()` supports `live`. `dcode` runs its agent inside the ACP process
+and keeps the runtime's session open in it, so `live` observes that the ACP
+child process is still running; `active` and `ready` are unsupported. A busy process passes. A
 stopped or exited process fails. Checks don't send prompts.
 
 Refer to the [SDK health-check overview](../../../docs/sdk/health-checks.mdx)
